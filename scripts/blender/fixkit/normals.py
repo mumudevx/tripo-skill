@@ -27,9 +27,16 @@ otherwise all of its corners are rebuilt, so one face never mixes both kinds.
 they were taken in and stored normals are rotated with the mesh. On an exception inside
 the block the mesh is left as it is (the caller is failing anyway).
 
+Copies (fixkit clone_part / mirror_half) move only part of a mesh, so transform() cannot
+carry them: `add_copies(matrix, select)` tells the keeper that the selected stored
+triangles now also exist at `matrix` x their position, and the copies get the moved
+stored normals back instead of analytic ones. `fork(obj)` hands the stored state to a
+new object split off this one (fixkit separate_parts); the caller exits the fork.
+
 This replaces the two prior mechanisms (per-vertex keep_normals.py and per-triangle
 fix_common.save_keeping); there is one implementation.
 """
+import copy
 import math
 
 import numpy as np
@@ -152,6 +159,38 @@ class NormalKeeper:
         m = Matrix(matrix)
         self.obj.data.transform(m)
         self._m = np.array(m, np.float64) @ self._m
+
+    def add_copies(self, matrix, select=None) -> int:
+        """The stored triangles picked by `select` were copied to `matrix` x their current
+        position (a 4x4 in the current mesh frame, as in transform()).
+
+        `select(centroids)` gets the (T, 3) current-frame centroids of the stored triangles
+        and returns a bool mask; None picks all. The copies are stored with their normals
+        moved the same way; a mirror (negative determinant) also reverses the corner order,
+        as the copied faces must be reversed to face outwards. Returns the count added.
+        """
+        cur = self._pos @ self._m[:3, :3].T + self._m[:3, 3]
+        sel = (np.ones(len(cur), bool) if select is None
+               else np.asarray(select(cur.mean(1)), bool))
+        if not sel.any():
+            return 0
+        e = np.linalg.inv(self._m) @ np.array(matrix, np.float64) @ self._m  # enter frame
+        pos = self._pos[sel] @ e[:3, :3].T + e[:3, 3]
+        nrm = _unit(self._nrm[sel] @ np.linalg.inv(e[:3, :3]))   # inverse transpose
+        if np.linalg.det(e[:3, :3]) < 0:
+            pos, nrm = pos[:, ::-1], nrm[:, ::-1]
+        self._pos = np.concatenate([self._pos, pos])
+        self._nrm = np.concatenate([self._nrm, nrm])
+        self._fn = np.concatenate([self._fn, _face_normals(pos)])
+        return int(sel.sum())
+
+    def fork(self, obj) -> "NormalKeeper":
+        """An open keeper for `obj`, whose mesh was split off this keeper's mesh inside the
+        block (same mesh frame). It shares the stored normals; the caller must exit it."""
+        nk = copy.copy(self)
+        nk.obj = obj
+        nk.stats = {"kept": 0, "rebuilt": 0}
+        return nk
 
     def __exit__(self, exc_type, exc, tb):
         if exc_type is None:
