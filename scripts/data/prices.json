@@ -1,0 +1,68 @@
+{
+  "as_of": "2026-10-31",
+  "unit": "credits (1 credit = 0.01 USD)",
+  "sources": [
+    "https://developers.tripo3d.ai/en/pricing (via _research/tripo-generation.md section 2)",
+    "https://developers.tripo3d.ai/en/pricing (via _research/tripo-processing.md section 0.4)",
+    "_research/tripo-animation.md (rig check, rig, retarget)"
+  ],
+  "_notes": {
+    "generate.aliases": "lower-case alias -> wire id, so pricing works offline (the hook has no CLI call budget). Model validation itself uses `tripo models --json`.",
+    "use": "Fallback only. tripo_plan.py prefers the dry-run generation_credits_estimate; this table prices processing steps, P1 and legacy H models. A null value means unknown, never zero.",
+    "generate.texture_tiers": "'none' = texture=false; 'standard' = any texture (fast bills as standard). H add-ons stack on top of the base.",
+    "generate.p_series": "P-series detailed/extreme texture and P2 quad are not on the pricing page, so they are unknown (null).",
+    "convert": "advanced = any non-default quad, face_limit, flatten_bottom, flatten_bottom_threshold, texture_size, texture_format, pivot_to_center_bottom or scale_factor.",
+    "import": "tripo make <file> always runs an import task first; its price is not published."
+  },
+  "generate": {
+    "aliases": {
+      "tripo-v3.1": "v3.1-20260211", "v3.1": "v3.1-20260211", "h3.1": "v3.1-20260211",
+      "tripo-v3.0": "v3.0-20250812", "v3.0": "v3.0-20250812", "h3.0": "v3.0-20250812",
+      "tripo-v2.5": "v2.5-20250123", "v2.5": "v2.5-20250123", "h2.5": "v2.5-20250123",
+      "tripo-p1": "P1-20260311", "p1": "P1-20260311", "p1.0": "P1-20260311",
+      "tripo-p2": "P2-20260801", "p2": "P2-20260801", "p2.0": "P2-20260801"
+    },
+    "h_series": {
+      "models": ["v3.1-20260211", "v3.0-20250812", "v2.5-20250123"],
+      "base": {
+        "text_to_model": {"none": 10, "standard": 20},
+        "image_to_model": {"none": 20, "standard": 30},
+        "multiview_to_model": {"none": 20, "standard": 30}
+      },
+      "addons": {
+        "texture_quality": {"detailed": 10, "extreme": 20},
+        "geometry_quality": {"detailed": 20},
+        "quad": 5,
+        "smart_low_poly": 10,
+        "generate_parts": 20
+      }
+    },
+    "P1-20260311": {
+      "text_to_model": {"none": 30, "standard": 40},
+      "image_to_model": {"none": 40, "standard": 50},
+      "multiview_to_model": {"none": 40, "standard": 50}
+    },
+    "P2-20260801": {
+      "text_to_model": {"none": 100, "standard": 110},
+      "image_to_model": {"none": 100, "standard": 110},
+      "multiview_to_model": {"none": 100, "standard": 110}
+    }
+  },
+  "texture": {"fast": 10, "standard": 10, "detailed": 20, "extreme": 30},
+  "convert": {"basic": 5, "advanced": 10},
+  "decimate": {
+    "v1.0": {"tri": 10, "quad": 10},
+    "v2.0": {"tri": 30, "quad": 30},
+    "v3.0": {"tri": 35, "quad": 40}
+  },
+  "uv": 20,
+  "segment": 40,
+  "complete": {"ai_completion": 50, "quick_cap": 30},
+  "smartsegment": {"model": 55, "image": 85},
+  "rig_check": 0,
+  "rig": 25,
+  "retarget_per_animation": 10,
+  "image_to_multiview": 10,
+  "edit_multiview_per_view": 5,
+  "import": null
+}
