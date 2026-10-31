@@ -5,6 +5,7 @@ Exit codes: 0 ok, 2 usage, 3 input not found, 4 internal error,
 5 check failed (the script ran fine, the result is negative).
 """
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -41,3 +42,49 @@ def find_project_root(start: Path):
 def tripo_dir(project: Path) -> Path:
     """Per-project state directory: <project>/.claude/tripo."""
     return Path(project) / ".claude" / "tripo"
+
+
+# ---------- <skill>/.state.json ----------
+# Shared by cli_watch.py (last_check, cli_version, golden_ok_for) and godot_place.py /
+# lessons.py ("projects"). Always read-modify-write; never replace the whole file.
+
+SKILL_ROOT = Path(__file__).resolve().parent.parent
+STATE_FILE = SKILL_ROOT / ".state.json"
+
+
+def state_read(path=None) -> dict:
+    """The state dict ({} when the file is missing). A file that is not a JSON object is
+    moved to <name>.corrupt (never silently dropped) and treated as empty."""
+    path = Path(path or STATE_FILE)
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return {}
+    except ValueError:
+        data = None
+    if not isinstance(data, dict):
+        aside = path.with_name(path.name + ".corrupt")
+        os.replace(path, aside)
+        sys.stderr.write(f"state file {path} was not a JSON object; kept as {aside}\n")
+        return {}
+    return data
+
+
+def _merge(base: dict, updates: dict) -> dict:
+    for key, val in updates.items():
+        if isinstance(val, dict) and isinstance(base.get(key), dict):
+            _merge(base[key], val)
+        else:
+            base[key] = val
+    return base
+
+
+def state_update(updates: dict, path=None) -> dict:
+    """Merge `updates` into the state file (nested dicts merge, other values replace) and
+    return the new state. The write is atomic."""
+    path = Path(path or STATE_FILE)
+    state = _merge(state_read(path), updates)
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(json.dumps(state, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    os.replace(tmp, path)
+    return state
