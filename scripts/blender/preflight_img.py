@@ -518,19 +518,35 @@ def run(a):
     if "left" in by_role and "right" in by_role:
         c = compare(by_role["left"]["_blob"], by_role["right"]["_blob"])
         if c["iou"] >= t["lr_copy_iou"]:
-            checks.append(check(
-                "LR_COPY", "fail",
-                "left and right views are the same image, not mirror images: one side was "
-                "copied; regenerate the right view as the mirror of the left",
-                left=by_role["left"]["index"], right=by_role["right"]["index"], **c))
+            ev = dict(left=by_role["left"]["index"], right=by_role["right"]["index"], **c)
+            if c["iou_mirrored"] < t["lr_copy_iou"]:
+                checks.append(check(
+                    "LR_COPY", "fail",
+                    "left and right views are the same image, not mirror images: one side was "
+                    "copied; regenerate the right view as the mirror of the left", **ev))
+            else:
+                checks.append(check(
+                    "LR_COPY", "warn",
+                    "left and right silhouettes are mirror-symmetric, so IoU cannot tell a "
+                    "copied side from a mirrored one: check by eye that side details (handles, "
+                    "doors, logos) sit on the correct side", symmetric=True, **ev))
     if "front" in by_role and "back" in by_role:
         c = compare(by_role["front"]["_blob"], by_role["back"]["_blob"])
         if c["iou"] >= t["back_copy_iou"] and c["pixel"] >= t["back_copy_pixel"]:
-            checks.append(check(
-                "BACK_COPY", "fail",
-                "the back view is a copy of the front (same silhouette and pixels, not "
-                "turned): Tripo builds two objects or a front on both faces; redraw the back",
-                front=by_role["front"]["index"], back=by_role["back"]["index"], **c))
+            ev = dict(front=by_role["front"]["index"], back=by_role["back"]["index"], **c)
+            if c["iou_mirrored"] < t["back_copy_iou"]:
+                checks.append(check(
+                    "BACK_COPY", "fail",
+                    "the back view is a copy of the front (same silhouette and pixels, not "
+                    "turned): Tripo builds two objects or a front on both faces; redraw the "
+                    "back", **ev))
+            else:
+                checks.append(check(
+                    "BACK_COPY", "warn",
+                    "front and back match, but the silhouette is mirror-symmetric (a crate, "
+                    "barrel or can can legitimately look the same from both sides): check by "
+                    "eye whether the back is a real back or a copy of the front",
+                    symmetric=True, **ev))
 
     chroma = [{"view": v["index"], "holes_frac": round(v["_blob"]["holes_frac"], 4),
                "tint_frac": round(v["_blob"]["tint_frac"], 4)} for v in views

@@ -174,6 +174,20 @@ class PreflightSynthetic(unittest.TestCase):
         self.assertEqual(code, 5)
         self.assertIn("LR_COPY", codes(out, "fail"))
 
+    def test_symmetric_object_copy_checks_warn(self):
+        # A barrel-like prop: every view is a mirror-symmetric ellipse, left == right and
+        # front == back. IoU cannot tell a copy from a mirror here, so both checks warn.
+        c = Canvas(2600, 1400)
+        c.ell(80, 120, 480, 1220, (200, 40, 40))       # front
+        c.ell(700, 120, 1000, 1220, (40, 90, 200))     # left
+        c.ell(1300, 120, 1700, 1220, (200, 40, 40))    # back
+        c.ell(2050, 120, 2350, 1220, (40, 90, 200))    # right
+        code, out, proc = run_cli(c.save(self.tmp / "barrel.png"))
+        self.assertEqual(code, 0, proc.stdout + proc.stderr)
+        self.assertIn("LR_COPY", codes(out, "warn"), out["checks"])
+        self.assertIn("BACK_COPY", codes(out, "warn"), out["checks"])
+        self.assertEqual(codes(out, "fail"), set(), out["checks"])
+
     def test_ground_line_warns_and_views_survive(self):
         for kind in ("joined", "separate"):
             with self.subTest(kind):
