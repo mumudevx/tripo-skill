@@ -118,6 +118,10 @@ def main(argv: list) -> int:
     except FileNotFoundError as e:
         common.fail(common.EXIT_NOT_FOUND, str(e))
     except BlenderError as e:
+        if e.code in (common.EXIT_USAGE, common.EXIT_NOT_FOUND):
+            common.fail(e.code, "blender script reported "
+                        + ("usage error" if e.code == common.EXIT_USAGE else "input not found"),
+                        blender_exit=e.code, stderr_tail=e.stderr_tail)
         common.fail(common.EXIT_INTERNAL, "blender failed", blender_exit=e.code,
                     stderr_tail=e.stderr_tail)
     common.emit(result)

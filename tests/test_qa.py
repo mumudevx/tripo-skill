@@ -233,8 +233,26 @@ class QaSynthetic(unittest.TestCase):
 
     def test_missing_model_fails(self):
         os.environ["BLENDER"] = BLENDER
-        with self.assertRaises(bl.BlenderError):
+        with self.assertRaises(bl.BlenderError) as cm:
             bl.run("qa.py", [str(self.tmp / "nope.glb")])
+        self.assertEqual(cm.exception.code, 3)
+
+    def test_cli_missing_model_exit3(self):
+        p = subprocess.run([sys.executable, str(SCRIPTS / "bl.py"), "qa.py", "--",
+                            str(self.tmp / "nope.glb")], capture_output=True, text=True,
+                           env=dict(os.environ, BLENDER=BLENDER))
+        self.assertEqual(p.returncode, 3, p.stderr)
+        lines = p.stdout.strip().splitlines()
+        self.assertEqual(len(lines), 1, p.stdout)
+        self.assertIs(json.loads(lines[0])["ok"], False)
+
+    def test_cli_bad_arg_exit2(self):
+        obj = self.tmp / "tri.obj"
+        obj.write_text("v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n")
+        p = subprocess.run([sys.executable, str(SCRIPTS / "bl.py"), "qa.py", "--", str(obj),
+                            "--symmetric", "z"], capture_output=True, text=True,
+                           env=dict(os.environ, BLENDER=BLENDER))
+        self.assertEqual(p.returncode, 2, p.stderr)
 
     def test_cli_one_json_line(self):
         obj = self.tmp / "tri.obj"

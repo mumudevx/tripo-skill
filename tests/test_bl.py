@@ -180,7 +180,7 @@ class LoadModel(unittest.TestCase):
     def test_missing_file_fails(self):
         with self.assertRaises(bl.BlenderError) as cm:
             self.load(self.tmp / "missing.glb")
-        self.assertEqual(cm.exception.code, 4)
+        self.assertEqual(cm.exception.code, 3)  # missing input -> EXIT_NOT_FOUND
 
 
 @unittest.skipUnless(os.path.exists(BLENDER), "blender not available")

@@ -18,6 +18,8 @@ import os
 import sys
 import traceback
 
+EXIT_USAGE = 2
+EXIT_NOT_FOUND = 3
 EXIT_INTERNAL = 4
 
 
@@ -64,13 +66,18 @@ def write(out: str, obj: dict) -> None:
 def main(fn, configure=None) -> None:
     """Run `fn(args) -> dict` and write the result to --out.
 
-    On any exception: print the traceback to stderr, write nothing, exit 4.
+    A missing input file exits 3 (EXIT_NOT_FOUND); argparse errors exit 2. On any
+    other exception: print the traceback to stderr, write nothing, exit 4.
     """
     try:
         ns = args(configure)
         write(ns.out, fn(ns))
     except SystemExit as e:  # argparse errors etc. must not look like success
         sys.exit(e.code if e.code not in (None, 0) else EXIT_INTERNAL)
+    except FileNotFoundError as e:  # nothing is written to --out
+        print(f"input not found: {e}", file=sys.stderr)
+        sys.stderr.flush()
+        sys.exit(EXIT_NOT_FOUND)
     except BaseException:
         traceback.print_exc()
         sys.stderr.flush()
