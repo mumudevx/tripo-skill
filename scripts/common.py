@@ -15,6 +15,8 @@ EXIT_NOT_FOUND = 3
 EXIT_INTERNAL = 4
 EXIT_CHECK = 5
 
+SKILL_ROOT = Path(__file__).resolve().parent.parent
+
 
 def emit(obj: dict) -> None:
     """Print one JSON line on stdout."""
@@ -39,16 +41,50 @@ def find_project_root(start: Path):
     return None
 
 
+def require_project(arg) -> Path:
+    """The Godot project root at or above `arg`; exit 3 when there is none."""
+    start = Path(arg).expanduser()
+    root = find_project_root(start) if start.exists() else None
+    if root is None:
+        fail(EXIT_NOT_FOUND, f"no project.godot at or above {arg}")
+    return root
+
+
 def tripo_dir(project: Path) -> Path:
     """Per-project state directory: <project>/.claude/tripo."""
     return Path(project) / ".claude" / "tripo"
+
+
+PROFILE_SCHEMA = "profile/1"
+
+
+def profile_path(project: Path) -> Path:
+    return tripo_dir(project) / "profile.json"
+
+
+def load_profile(project: Path) -> dict:
+    """The project's profile.json. A missing, unreadable or foreign-schema profile stops the
+    script with a message that names the fix; there is no silent fallback."""
+    path = profile_path(project)
+    init_cmd = f"python3 {SKILL_ROOT / 'scripts' / 'profile.py'} init {project} --answers <json>"
+    if not path.is_file():
+        fail(EXIT_NOT_FOUND, f"no profile at {path}; run `{init_cmd}` first "
+                             f"(`profile.py detect {project}` proposes the values)")
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except ValueError as e:
+        fail(EXIT_INTERNAL, f"profile {path} is not valid JSON: {e}")
+    if not isinstance(data, dict) or data.get("schema") != PROFILE_SCHEMA:
+        found = data.get("schema") if isinstance(data, dict) else None
+        fail(EXIT_CHECK, f"profile {path} has schema {found!r}, expected {PROFILE_SCHEMA!r}; "
+                         f"re-run `{init_cmd} --force`", migrate=True)
+    return data
 
 
 # ---------- <skill>/.state.json ----------
 # Shared by cli_watch.py (last_check, cli_version, golden_ok_for) and godot_place.py /
 # lessons.py ("projects"). Always read-modify-write; never replace the whole file.
 
-SKILL_ROOT = Path(__file__).resolve().parent.parent
 STATE_FILE = SKILL_ROOT / ".state.json"
 
 

@@ -1,0 +1,18 @@
+{
+  "as_of": "2026-10-31",
+  "unit": "triangles, LOD0",
+  "source": "_research/game-polycount-lod.md section 2a (starting points, not limits: check against the frame budget; stylized art sits low, realistic art with a close camera sits high)",
+  "platform_notes": {
+    "mobile": "mobile, web and quest",
+    "pc": "pc and console (non-Nanite)"
+  },
+  "classes": {
+    "small_prop":  {"mobile": 800,   "pc": 3000},
+    "large_prop":  {"mobile": 3000,  "pc": 15000},
+    "env_piece":   {"mobile": 2000,  "pc": 10000},
+    "weapon_held": {"mobile": 3000,  "pc": 10000},
+    "npc":         {"mobile": 5000,  "pc": 20000},
+    "hero":        {"mobile": 10000, "pc": 50000},
+    "vehicle":     {"mobile": 15000, "pc": 30000}
+  }
+}
