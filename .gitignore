@@ -1,0 +1,6 @@
+.superpowers/
+__pycache__/
+.state.json
+lessons/general.md
+*.blend1
+tests/_out/
