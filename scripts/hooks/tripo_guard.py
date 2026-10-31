@@ -46,6 +46,7 @@ ASSIGN_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=")
 KEYWORDS = {"if", "then", "else", "elif", "do", "while", "until", "!", "{", "time",
             "command", "exec", "builtin", "nohup", "noglob"}
 SHELLS = {"bash", "sh", "zsh", "dash", "ksh"}
+SHELL_LONG_VALUE_OPTS = {"--rcfile", "--init-file"}
 NPX = {"npx", "bunx"}
 # wrapper -> its options that take a value
 WRAPPER_VALUE_OPTS = {"env": {"-u", "-C", "-S"}, "sudo": {"-u", "-g", "-C", "-h", "-p"},
@@ -132,12 +133,25 @@ def _unwrap(argv):
                 return ["tripo", *argv[i + 1:]], nested
             return [], nested
         elif os.path.basename(t) in SHELLS:
-            j = i + 1
-            while j < len(argv) and argv[j].startswith("-"):
-                if "c" in argv[j][1:] and not argv[j].startswith("--") and j + 1 < len(argv):
-                    nested.append(argv[j + 1])
+            # Walk all options like the shell does: -o/+o/-O/+O (also inside
+            # combined flags such as -euo) take a value, and with -c anywhere
+            # the first non-option argument is the command string.
+            j, has_c = i + 1, False
+            while j < len(argv):
+                a = argv[j]
+                if a in ("--", "-"):
+                    j += 1
                     break
-                j += 1
+                if a.startswith("--"):
+                    j += 2 if a in SHELL_LONG_VALUE_OPTS else 1
+                elif a[:1] in "-+" and len(a) > 1:
+                    letters = a[1:]
+                    has_c = has_c or "c" in letters
+                    j += 1 + letters.count("o") + letters.count("O")
+                else:
+                    break
+            if has_c and j < len(argv):
+                nested.append(argv[j])
             return [], nested
         elif t == "eval":
             nested.append(" ".join(argv[i + 1:]))

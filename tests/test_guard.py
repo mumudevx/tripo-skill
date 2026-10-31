@@ -172,6 +172,13 @@ class Classification(unittest.TestCase):
     def test_hidden_forms_still_caught(self):
         self.assertAsk('bash -c "tripo make x.png --model tripo-v3.1"')
         self.assertAsk("sh -lc 'cd a && tripo redo'")
+        # shell options that take a value before -c
+        self.assertAsk("bash -o pipefail -c 'tripo make x.png --model tripo-v3.1'")
+        self.assertAsk("bash -euo pipefail -c 'tripo make x.png --model tripo-v3.1'")
+        self.assertAsk("bash -O extglob -c 'tripo make x.png --model tripo-v3.1'")
+        self.assertAsk("bash +o posix -ec 'tripo redo'")
+        self.assertAsk("bash --rcfile x.rc -c 'tripo redo'")
+        self.assertAsk("bash -c -e 'tripo redo'")
         self.assertAsk('echo "$(tripo make x.png --model tripo-v3.1)"')
         self.assertAsk("echo `tripo redo`")
         self.assertAsk("(cd a && tripo make @a --then uv)")
