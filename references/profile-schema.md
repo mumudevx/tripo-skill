@@ -27,7 +27,7 @@ Created once per game by `profile.py init`. `profile.py detect <project>` propos
 | `placement_mode` | `scene_swap` / `generator_script` | `generator_script` when `scripts/dev/generate_*_models.gd` exist (the `.tscn` files are generated, so placement edits the generator), else `scene_swap` |
 | `pinned.cli` | string | tripo-cli version the profile was made for (`0.9.0`) |
 | `pinned.gen_model` / `texture_model` / `rig_model` | string | wire ids passed to `--model` (never left to a default) |
-| `check_commands` | list of strings | run from the project root after placement: `bash scripts/check_import.sh`, and the GUT run when `.gutconfig.json` exists |
+| `check_commands` | list of strings | run from the project root after placement: `bash scripts/check_import.sh`, and, when `.gutconfig.json` exists, the project's `scripts/run_tests.sh` when present (it fails on parse errors and leaks that raw GUT reports as exit 0), else the raw GUT command |
 
 Budget classes: `small_prop`, `large_prop`, `env_piece`, `weapon_held`, `npc`, `hero`, `vehicle`. The numbers are starting points (`_research/game-polycount-lod.md` section 2a); the profile may change any of them. Unknown answer keys are an error, not ignored.
 

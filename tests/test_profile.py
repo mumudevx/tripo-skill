@@ -16,7 +16,7 @@ PROFILE_CLI = str(SCRIPTS / "profile.py")
 ASSET_CLI = str(SCRIPTS / "asset_state.py")
 GRIME = Path("/Users/muhsin/Documents/GitHub/mumudevx/grime-does-pay")
 PATINA = Path("/Users/muhsin/Documents/GitHub/mumudevx/patina")
-COPY_FILES = ("project.godot", "scripts/godot_bin.sh", "scripts/check_import.sh",
+COPY_FILES = ("project.godot", "scripts/godot_bin.sh", "scripts/check_import.sh", "scripts/run_tests.sh",
               "docs/asset_log.md", ".gutconfig.json", "export_presets.cfg")
 ANSWERS = {"art_style": "stylized low poly", "platforms": ["pc"],
            "game_camera": {"yaw": 45, "pitch": 30, "fov": 50}, "texel_density": 512}
@@ -81,7 +81,8 @@ class DetectTests(Base):
         self.assertEqual(prof["renderer"], "forward_plus")
         self.assertEqual(prof["platforms"], ["pc"])  # export_presets.cfg: Windows/macOS/Linux
         self.assertTrue(any("check_import.sh" in c for c in prof["check_commands"]))
-        self.assertTrue(any("gut" in c.lower() for c in prof["check_commands"]))
+        self.assertIn("bash scripts/run_tests.sh", prof["check_commands"])
+        self.assertFalse(any("gut_cmdln" in c for c in prof["check_commands"]))
         for key in ("art_style", "game_camera", "texel_density"):
             self.assertIn(key, out["unknown"])
         self.assertNotIn("paths.art_source", out["unknown"])
@@ -101,6 +102,18 @@ class DetectTests(Base):
         self.assertEqual(prof["asset_log_format"], "patina")
         self.assertEqual(prof["paths"]["art_source"], "art_source")
         self.assertEqual(prof["placement_mode"], "generator_script")
+        self.assertIn("bash scripts/run_tests.sh", prof["check_commands"])
+        self.assertFalse(any("gut_cmdln" in c for c in prof["check_commands"]))
+
+    def test_gut_fallback_without_run_tests(self):
+        proj = self.project(minimal_project())
+        (proj / ".gutconfig.json").write_text("{}")
+        code, out, _ = profile_cli("detect", proj)
+        self.assertEqual(code, 0, out)
+        checks = out["profile"]["check_commands"]
+        self.assertEqual(len(checks), 1, checks)
+        self.assertIn("gut_cmdln.gd", checks[0])
+        self.assertIn("-gexit", checks[0])
 
     def test_detect_minimal_and_unknowns(self):
         proj = self.project(minimal_project())

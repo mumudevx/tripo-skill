@@ -135,7 +135,10 @@ def detect(root: Path) -> tuple:
     checks = []
     if (root / "scripts" / "check_import.sh").is_file():
         checks.append("bash scripts/check_import.sh")
-    if (root / ".gutconfig.json").is_file():
+    if (root / ".gutconfig.json").is_file() and (root / "scripts" / "run_tests.sh").is_file():
+        # the project wrapper fails on parse errors and leaks that the raw GUT run reports as exit 0
+        checks.append("bash scripts/run_tests.sh")
+    elif (root / ".gutconfig.json").is_file():
         checks.append(f"{shlex.quote(binary or 'godot')} --headless --path . -s res://addons/gut/gut_cmdln.gd "
                       f"-gconfig=res://.gutconfig.json -gexit")
 
