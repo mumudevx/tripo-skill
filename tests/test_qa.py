@@ -196,6 +196,12 @@ class QaSynthetic(unittest.TestCase):
         self.assertIsNone(m["uv"]["overlap_pct"])
         self.assertEqual(m["skin"], {"joints": 0, "max_influences": 0})
 
+    def test_front_minus_x_as_separate_argument(self):
+        obj = self.tmp / "box.obj"
+        obj.write_text(box_obj([(-0.3, 0.3, -0.2, 0.2, 0.0, 0.5)]))
+        r = qa(obj, "--front", "-x")             # argparse would take '-x' for an option
+        self.assertEqual(r["metrics"]["front"], "-x")
+
     def test_ground_slab(self):
         cube = (-0.4, 0.4, -0.4, 0.4, 0.02, 1.0)
         plate = (-1.0, 1.0, -1.0, 1.0, 0.0, 0.02)  # 2 % of the height, wider than the cube

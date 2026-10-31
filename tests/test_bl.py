@@ -112,6 +112,34 @@ class BlenderRunner(unittest.TestCase):
         self.assertEqual(bl.run(s, []), {"ok": True})
 
 
+class GlueOptionValues(unittest.TestCase):
+    """Pure-Python check of _io.glue_option_values (no Blender needed)."""
+
+    @classmethod
+    def setUpClass(cls):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("tripo_io_under_test", SCRIPTS / "blender" / "_io.py")
+        cls.io = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cls.io)
+
+    def test_front_axes_are_joined(self):
+        g = self.io.glue_option_values
+        self.assertEqual(g(["m", "--front", "-x"]), ["m", "--front=-x"])
+        self.assertEqual(g(["--front", "-y"]), ["--front=-y"])
+        self.assertEqual(g(["--front", "+x"]), ["--front=+x"])
+
+    def test_other_tokens_untouched(self):
+        g = self.io.glue_option_values
+        for argv in (["--png", "-x.png"], ["--front=-x"], ["--front", "x"], ["--front"],
+                     ["-x", "--front"], ["--budget", "-1"], []):
+            self.assertEqual(g(list(argv)), argv)
+
+    def test_negative_game_cam_is_joined(self):
+        g = self.io.glue_option_values
+        self.assertEqual(g(["--game-cam", "-30,35,40"]), ["--game-cam=-30,35,40"])
+        self.assertEqual(g(["--game-cam", "30,35,40"]), ["--game-cam", "30,35,40"])
+
+
 @unittest.skipUnless(os.path.exists(BLENDER), "blender not available")
 class LoadModel(unittest.TestCase):
     def setUp(self):

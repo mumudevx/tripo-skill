@@ -23,6 +23,27 @@ EXIT_NOT_FOUND = 3
 EXIT_INTERNAL = 4
 
 
+_AXES = ("-x", "-y", "+x", "+y")
+
+
+def glue_option_values(argv):
+    """Join `--front -x` into `--front=-x` (and `--game-cam -30,35,40` likewise)."""
+    # argparse reads a following '-x'/'-y'/'-30,..' as an option flag, so the space form
+    # fails with 'expected one argument'; the '=' form is always parsed as a value.
+    out, i = [], 0
+    while i < len(argv):
+        tok = argv[i]
+        nxt = argv[i + 1] if i + 1 < len(argv) else None
+        if nxt is not None and ((tok == "--front" and nxt in _AXES) or
+                                (tok == "--game-cam" and nxt[:1] == "-" and nxt[1:2] in tuple("0123456789."))):
+            out.append(f"{tok}={nxt}")
+            i += 2
+        else:
+            out.append(tok)
+            i += 1
+    return out
+
+
 def args(configure=None) -> argparse.Namespace:
     """Parse the arguments after Blender's `--`. `--out` is always present.
 
@@ -30,6 +51,7 @@ def args(configure=None) -> argparse.Namespace:
     unknown options are collected in `ns.rest`.
     """
     argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
+    argv = glue_option_values(argv)
     p = argparse.ArgumentParser(prog="blender-script", add_help=False)
     p.add_argument("--out", required=True, help="where to write the result JSON")
     if configure is not None:

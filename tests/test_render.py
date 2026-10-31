@@ -1,6 +1,7 @@
 import os
 import shutil
 import struct
+import zlib
 import unittest
 
 from tests.util import BLENDER, fixture, skip_if_missing, tmpdir
@@ -38,6 +39,22 @@ def png_size(path):
         head = f.read(24)
     assert head[:8] == b"\x89PNG\r\n\x1a\n", "not a PNG"
     return struct.unpack(">II", head[16:24])
+
+
+def png_rows(path):
+    """Rows of grey values (R channel) of the 8-bit RGB, filter-0 PNG our sheet encoder writes."""
+    data = open(path, "rb").read()
+    w, h = struct.unpack(">II", data[16:24])
+    pos, idat = 8, b""
+    while pos < len(data):
+        n, tag = struct.unpack(">I4s", data[pos:pos + 8])
+        if tag == b"IDAT":
+            idat += data[pos + 8:pos + 8 + n]
+        pos += 12 + n
+    raw = zlib.decompress(idat)
+    stride = 1 + 3 * w
+    assert all(raw[r * stride] == 0 for r in range(h)), "unexpected PNG filter"
+    return [raw[r * stride + 1:(r + 1) * stride:3] for r in range(h)]
 
 
 @unittest.skipUnless(os.path.exists(BLENDER), "blender not available")
@@ -110,6 +127,44 @@ class RenderSheet(unittest.TestCase):
         self.assertLessEqual(max(r["width"], r["height"]), 1500)
         # a 0.6 m model gets the 0.1 m grid, a 3 m model would get 1 m (see render_sheet.grid_spacing)
         self.assertEqual(r["grid_m"], 0.1)
+
+    def test_model_with_world_offset_is_in_every_panel(self):
+        d = tmpdir("tripo-sheet-test-")
+        self.addCleanup(shutil.rmtree, d, True)
+        shifted = []
+        for line in CUBE_OBJ.splitlines():     # OBJ (50, 20, -30) is Blender (50, 30, 20)
+            if line.startswith("v "):
+                x, y, z = map(float, line.split()[1:])
+                line = f"v {x + 50} {y + 20} {z - 30}"
+            shifted.append(line)
+        model = d / "shifted.obj"
+        model.write_text("\n".join(shifted) + "\n")
+        r = sheet(model)
+        self.assertEqual(len(r["panels"]), 24)
+        rows = png_rows(r["png"])
+        top, cw, ch = 22, r["width"] // 6, (r["height"] - 22) // 4   # header strip, 6 x 4 cells
+        for p in r["panels"]:
+            cell = [row[p["col"] * cw + 4:(p["col"] + 1) * cw - 4]
+                    for row in rows[top + p["row"] * ch + 4:top + (p["row"] + 1) * ch - 4]]
+            bright = sum(v > 150 for row in cell for v in row)    # background is dark grey (~77)
+            self.assertGreater(bright / (len(cell) * len(cell[0])), 0.05, f"{p['name']} looks empty")
+
+    def test_front_minus_x_as_separate_argument(self):
+        d = tmpdir("tripo-sheet-test-")
+        self.addCleanup(shutil.rmtree, d, True)
+        model = d / "cube.obj"
+        model.write_text(CUBE_OBJ)
+        r = sheet(model, "--front", "-x")        # argparse would take '-x' for an option
+        self.assertEqual(r["front"], "-x")
+        self.assertEqual(len(r["panels"]), 24)
+
+    def test_negative_game_cam_yaw_as_separate_argument(self):
+        d = tmpdir("tripo-sheet-test-")
+        self.addCleanup(shutil.rmtree, d, True)
+        model = d / "cube.obj"
+        model.write_text(CUBE_OBJ)
+        r = sheet(model, "--game-cam", "-30,35,40")
+        self.assertEqual(len(r["panels"]), 28)
 
 
 if __name__ == "__main__":

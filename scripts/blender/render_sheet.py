@@ -508,7 +508,8 @@ def run(a):
         cam_data.type = "ORTHO"
         cam_data.ortho_scale = ortho_scale
         target, _ = ortho[view]
-        aim(cam, d, front, target, 2 * diag)
+        # keep the model's offset along the view axis: the camera stays 2*diag in front of the centre
+        aim(cam, d, front, target + centre.dot(d) * d, 2 * diag)
         return ortho_scale / px
 
     def light_follow(view, key_az=35.0, fill_on=True, key_abs=False):
