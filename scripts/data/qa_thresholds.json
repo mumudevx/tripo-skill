@@ -1,0 +1,38 @@
+{
+  "preflight": {
+    "_notes": {
+      "low_res_min_px": "object bbox long side per view. The plan said 1024, but good inputs measure less: R2 side views 860 px, the 1K tuning_capacitor views (1024-px files) 828 px; the 512-px views that gave a jumbled model measure 428 px. 768 = an object filling 75% of a 1K view.",
+      "chroma_min_view_frac": "largest patch of background-hued pixels inside a view / view area. R9 canopy 0.058; good chroma sheets (R2, R3) at most 0.008.",
+      "view_height_ratio": "max/min blob height inside a row of views. Views on R1-R3, R5, R6, R8, R9 measure at most 1.014; detail-panel rows under R2, R3, R5, R6, R8, R9 measure 1.066 or more.",
+      "back_copy_pixel": "1 - mean abs RGB difference / 255 over the shared silhouette. R11 copied back 0.981; real front/back pairs (R1, R2, R3, R9) at most 0.92."
+    },
+    "work_px": 1024,
+    "hi_px": 2048,
+    "fg_distance": 30,
+    "min_blob_image_frac": 0.0005,
+    "min_blob_largest_frac": 0.02,
+    "merge_overlap": 0.5,
+    "row_overlap": 0.5,
+    "clip_side_run": 0.6,
+    "view_height_ratio": 1.04,
+    "sheet_max_views": 4,
+    "low_res_min_px": 768,
+    "sim_px": 128,
+    "lr_copy_iou": 0.97,
+    "back_copy_iou": 0.97,
+    "back_copy_pixel": 0.97,
+    "hole_min_px": 9,
+    "hole_min_view_frac": 0.002,
+    "chroma_min_saturation": 60,
+    "chroma_tint_margin": 20,
+    "chroma_erode_px": 2,
+    "chroma_min_view_frac": 0.02,
+    "ground_zone": 0.25,
+    "ground_fill": 0.9,
+    "ground_max_h_frac": 0.06,
+    "ground_overhang": 0.1,
+    "bg_soft_distance": 8,
+    "bg_soft_max_frac": 0.05,
+    "bg_border_p90": 10
+  }
+}
