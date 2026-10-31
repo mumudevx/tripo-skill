@@ -35,5 +35,50 @@
     "bg_soft_distance": 8,
     "bg_soft_max_frac": 0.05,
     "bg_border_p90": 10
+  },
+  "qa": {
+    "_notes": {
+      "status": "initial values, not yet calibrated (Task 15 calibrates on the local corpus). A code whose severity is 'info' is reported as info only until its threshold is calibrated (spec 12).",
+      "severity": "per code: S0 broken, S1 visible in game, S2 cosmetic, info = uncalibrated, rule = computed by qa.py (OVER_BUDGET: S1 above over_budget_s1 x budget, S0 above over_budget_s0 x budget, info just above the budget)",
+      "influences_max": "4 bone weights per vertex is the engine skinning default, a platform rule rather than a measured threshold, so TOO_MANY_INFLUENCES ships at S1",
+      "asymmetry_pct_max": "initial: mirror-symmetric models measured 0.004-0.03 (crew_apose_raw, pickup_g2, pedal_car_raw turned so their left/right axis is X), lopsided ones 0.15-3 (tool_chest_g3 0.15, tool_chest_g1 0.77, engine_block_g1 0.78, jerry_can_g3 2.1); tool_chest_final (mirrored half) 0.011. Measured along world X: the model must face -Y (or be turned) first"
+    },
+    "over_budget_s1": 1.1,
+    "over_budget_s0": 2.0,
+    "nonmanifold_edges_max": 0,
+    "boundary_edges_max": 0,
+    "loose_tris_pct": 1.0,
+    "loose_parts_max": 0,
+    "flipped_pct_max": 0.5,
+    "sliver_pct_max": 3.0,
+    "low_band_tris_pct_min": 0.1,
+    "asymmetry_pct_max": 0.1,
+    "back_relief_max": 0.8,
+    "uv_overlap_pct_max": 1.0,
+    "texel_density_min": 256,
+    "palette_delta_e_max": 10.0,
+    "baked_light_max": 0.35,
+    "influences_max": 4,
+    "materials_max": 1,
+    "texture_max_px": 2048,
+    "severity": {
+      "OVER_BUDGET": "rule",
+      "NON_MANIFOLD": "info",
+      "HOLES": "info",
+      "LOOSE_PARTS": "info",
+      "FLIPPED_NORMALS": "info",
+      "SLIVERS": "info",
+      "GROUND_SLAB": "info",
+      "NOT_GROUNDED": "info",
+      "ASYMMETRY": "info",
+      "BACK_COPY": "info",
+      "UV_OVERLAP": "info",
+      "LOW_TEXEL": "info",
+      "PALETTE_DRIFT": "info",
+      "BAKED_LIGHT": "info",
+      "TOO_MANY_INFLUENCES": "S1",
+      "MULTI_MATERIAL": "info",
+      "TEXTURE_OVERSIZE": "info"
+    }
   }
 }
