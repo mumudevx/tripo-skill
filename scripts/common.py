@@ -99,15 +99,69 @@ def model_dest(profile: dict, asset_id: str, asset_class: str) -> str:
     return rel.as_posix()
 
 
-def ensure_gdignore(project: Path, profile: dict) -> list:
+GDIGNORE_SKIP_DIRS = {".godot", ".git", ".claude", ".import"}
+GDIGNORE_EXAMPLES = 5
+
+
+def gdignore_conflicts(project: Path, art: str) -> list:
+    """Why a new <art>/.gdignore would hide files Godot uses now: `*.import` files inside the
+    folder, and `res://<art>/...` paths named by any .tscn/.tres/.gd in the project (at most
+    GDIGNORE_EXAMPLES of each). [] when the folder is missing or already has a .gdignore."""
+    project = Path(project)
+    folder = project / art
+    if not folder.is_dir() or (folder / ".gdignore").exists():
+        return []
+    found = []
+    imports = []
+    for dirpath, dirnames, filenames in os.walk(folder):
+        dirnames[:] = [d for d in dirnames if d not in GDIGNORE_SKIP_DIRS]
+        imports += [Path(dirpath, f) for f in filenames if f.endswith(".import")]
+        if len(imports) >= GDIGNORE_EXAMPLES:
+            break
+    found += [f"{p.relative_to(project).as_posix()} (an imported asset)" for p in imports[:GDIGNORE_EXAMPLES]]
+    prefix = "res://" + Path(art).as_posix().rstrip("/") + "/"
+    refs = []
+    for dirpath, dirnames, filenames in os.walk(project):
+        dirnames[:] = [d for d in dirnames if d not in GDIGNORE_SKIP_DIRS]
+        for f in filenames:
+            if not f.endswith((".tscn", ".tres", ".gd")):
+                continue
+            path = Path(dirpath, f)
+            try:
+                text = path.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            i = text.find(prefix)
+            if i >= 0:
+                end = min((j for j in (text.find(c, i) for c in "\"' )\n") if j >= 0), default=len(text))
+                refs.append(f"{text[i:end]} (used by {path.relative_to(project).as_posix()})")
+                if len(refs) >= GDIGNORE_EXAMPLES:
+                    break
+        if len(refs) >= GDIGNORE_EXAMPLES:
+            break
+    return found + refs
+
+
+def ensure_gdignore(project: Path, profile: dict, confirmed: bool = False) -> list:
     """Create <art_source>/ and an empty <art_source>/.gdignore when the profile names an art
     source, so Godot never imports raw Tripo files, .blend files or render sheets. Owned by
     `profile.py init`; `asset_state.py new` calls it again to repair an older profile's folder.
+    Call it before any other write. Refuses (exit 2) an art source that is the project root, and
+    (exit 5) a folder that already holds `*.import` files or files a scene/resource/script names
+    as res://, unless `confirmed` (the user agreed; --confirm-gdignore).
     Returns the project-relative paths it created ([] when everything was there)."""
     art = ((profile or {}).get("paths") or {}).get("art_source")
     if not art:
         return []
     folder = Path(project) / art
+    if not Path(art).parts or folder.resolve() == Path(project).resolve():
+        fail(EXIT_USAGE, f"paths.art_source {art!r} is the project root: a .gdignore there hides the whole "
+                         f"project from Godot; pick a subfolder such as art_source")
+    conflicts = gdignore_conflicts(project, art)
+    if conflicts and not confirmed:
+        fail(EXIT_CHECK, f"{art}/ already holds files Godot uses; a {art}/.gdignore would hide them from Godot "
+                         f"(scenes would lose their models). Pick another art_source, or ask the user and re-run "
+                         f"with --confirm-gdignore", conflicts=conflicts, gdignore=(Path(art) / ".gdignore").as_posix())
     created = []
     if not folder.is_dir():
         folder.mkdir(parents=True)
@@ -117,6 +171,12 @@ def ensure_gdignore(project: Path, profile: dict) -> list:
         marker.write_text("", encoding="utf-8")
         created.append((Path(art) / ".gdignore").as_posix())
     return created
+
+
+def gdignore_warnings(created: list) -> list:
+    """The warning every caller lists when it wrote a .gdignore (never only in `created`)."""
+    return [f"created {c}: Godot no longer imports anything under {c[:-len('.gdignore')]}"
+            for c in created if c.endswith(".gdignore")]
 
 
 # ---------- <skill>/.state.json ----------

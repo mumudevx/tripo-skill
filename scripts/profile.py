@@ -3,12 +3,15 @@
 <project>/.claude/tripo/profile.json (schema profile/1, see references/profile-schema.md).
 
   profile.py detect <project>                       proposed profile + "unknown": [keys to ask]
-  profile.py init <project> --answers <json|file|-> [--force]
+  profile.py init <project> --answers <json|file|-> [--force] [--confirm-gdignore]
 
 `detect` never writes. `init` merges the answers over the detected values, validates the result
 and writes it; it refuses to overwrite an existing profile without --force. When
 paths.art_source is set, `init` also creates that folder and an empty `.gdignore` in it (listed
-in "created"), so Godot never imports raw models, .blend files or render sheets.
+in "created" and in "warnings"), so Godot never imports raw models, .blend files or render sheets.
+art_source may not be the project root (exit 2). When the folder already holds `*.import` files
+or files a .tscn/.tres/.gd names as res://, init refuses (exit 5, "conflicts" lists them) and
+writes nothing, unless the user agreed and --confirm-gdignore is passed.
 
 game_camera {yaw, pitch, fov} uses render_sheet.py's convention (it is passed on as
 `--game-cam yaw,pitch,fov`): yaw = degrees around the model from its front towards its right,
@@ -237,6 +240,9 @@ def validate(p: dict) -> None:
         need(_opt_str(p["naming"][k]), f"naming.{k} must be a string or null")
     for k in SECTIONS["paths"]:
         need(_rel_path(p["paths"][k]), f"paths.{k} must be a relative path inside the project or null")
+    art = p["paths"]["art_source"]
+    need(art is None or Path(art).parts, "paths.art_source must be a subfolder, not the project root (a .gdignore "
+                                          "there hides the whole project from Godot)")
     need(p["asset_log_format"] in ASSET_LOG_FORMATS, f"asset_log_format must be one of {', '.join(ASSET_LOG_FORMATS)}")
     need(p["placement_mode"] in PLACEMENT_MODES, f"placement_mode must be one of {', '.join(PLACEMENT_MODES)}")
     for k, v in p["pinned"].items():
@@ -319,6 +325,8 @@ def main(argv):
     i.add_argument("project")
     i.add_argument("--answers", required=True)
     i.add_argument("--force", action="store_true")
+    i.add_argument("--confirm-gdignore", action="store_true",
+                   help="the user agreed to a .gdignore in an art_source folder Godot already uses")
     a = p.parse_args(argv)
 
     root = common.require_project(a.project)
@@ -340,8 +348,10 @@ def main(argv):
         warnings.append(f"game_camera.pitch {cam['pitch']} puts the camera BELOW the horizon, looking up; "
                         f"pitch is degrees above the horizon (a camera above looking down is positive, "
                         f"e.g. 35)")
+    # before the profile is written: a refused .gdignore leaves nothing behind
+    created = common.ensure_gdignore(root, profile, confirmed=a.confirm_gdignore)
+    warnings += common.gdignore_warnings(created)
     write_profile(path, profile)
-    created = common.ensure_gdignore(root, profile)  # Godot must never import the art source
     common.emit({"ok": True, "project": str(root), "path": str(path), "profile": profile,
                  "unknown": unknown_keys(profile), "warnings": warnings, "created": created})
     return common.EXIT_OK

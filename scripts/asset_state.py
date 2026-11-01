@@ -2,7 +2,7 @@
 """Per-asset state and the credit ledger under <project>/.claude/tripo/.
 
   asset_state.py new <project> <id> --class C [--placeholder-scene S --placeholder-node N]
-                                    [--brief JSON] [--ref PATH ...]
+                                    [--brief JSON] [--ref PATH ...] [--confirm-gdignore]
   asset_state.py get <project> <id>
   asset_state.py update <project> <id> [--phase P] [--set KEY=JSON ...] [--append KEY=JSON ...]
                                        [--chain-update LABEL=JSON ...]
@@ -251,9 +251,11 @@ def new_asset(a) -> dict:
                              if a.placeholder_scene else None),
              "brief": brief, "refs": list(a.ref or []), "chain": [], "qa": [], "recipe": None,
              "decisions": []}
+    # repairs a profile made before init did it; before any write, so a refusal leaves nothing behind
+    created = common.ensure_gdignore(root, profile, confirmed=a.confirm_gdignore)
     write_json(path, asset)
-    created = common.ensure_gdignore(root, profile)  # repairs a profile made before init did it
-    return {"ok": True, "path": str(path), "asset": asset, "created": created}
+    return {"ok": True, "path": str(path), "asset": asset, "created": created,
+            "warnings": common.gdignore_warnings(created)}
 
 
 def update_asset(a) -> dict:
@@ -348,6 +350,7 @@ def main(argv):
     n.add_argument("--placeholder-node")
     n.add_argument("--brief")
     n.add_argument("--ref", action="append")
+    n.add_argument("--confirm-gdignore", action="store_true")
     g = sub.add_parser("get")
     g.add_argument("project")
     g.add_argument("id")

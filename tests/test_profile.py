@@ -227,6 +227,7 @@ class InitTests(Base):
         self.assertEqual(code, 0, out)
         self.assertTrue((proj / "art_src" / ".gdignore").is_file())
         self.assertEqual(out["created"], ["art_src/", "art_src/.gdignore"])
+        self.assertTrue(any("art_src/.gdignore" in w for w in out["warnings"]), out["warnings"])
         # idempotent; an existing folder without the marker gets only the marker
         (proj / "art_src" / ".gdignore").unlink()
         (proj / "art_src" / "keep.txt").write_text("x")
@@ -246,7 +247,57 @@ class InitTests(Base):
         code, out, _ = asset_cli("new", proj, "crate", "--class", "small_prop")
         self.assertEqual(code, 0, out)
         self.assertEqual(out["created"], ["art_src/.gdignore"])
+        self.assertTrue(any("art_src/.gdignore" in w for w in out["warnings"]), out["warnings"])
         self.assertTrue((proj / "art_src" / ".gdignore").is_file())
+
+    def test_art_source_project_root_rejected(self):
+        # I6: a .gdignore at the project root hides the whole project from Godot
+        proj = self.project(minimal_project())
+        for bad in (".", "./", "art/.."):
+            code, out, _ = profile_cli("init", proj, "--answers", json.dumps({"paths": {"art_source": bad}}))
+            self.assertEqual(code, 2, (bad, out))
+        self.assertFalse((proj / ".gdignore").exists())
+        self.assertFalse((proj / ".claude" / "tripo" / "profile.json").exists())
+
+    def test_gdignore_refused_over_used_folder(self):
+        # I6: an existing folder Godot already imports from is never hidden silently
+        proj = self.project(minimal_project())
+        (proj / "assets" / "models").mkdir(parents=True)
+        (proj / "assets" / "models" / "chair.glb").write_bytes(b"glTF")
+        (proj / "assets" / "models" / "chair.glb.import").write_text("[remap]\n")
+        answers = json.dumps({"paths": {"art_source": "assets"}})
+        code, out, _ = profile_cli("init", proj, "--answers", answers)
+        self.assertEqual(code, 5, out)
+        self.assertIn("--confirm-gdignore", out["error"])
+        self.assertTrue(any("chair.glb.import" in c for c in out["conflicts"]), out)
+        self.assertFalse((proj / "assets" / ".gdignore").exists())
+        self.assertFalse((proj / ".claude" / "tripo" / "profile.json").exists())  # nothing written
+        # explicit confirmation: written, and still listed in warnings
+        code, out, _ = profile_cli("init", proj, "--answers", answers, "--confirm-gdignore")
+        self.assertEqual(code, 0, out)
+        self.assertTrue((proj / "assets" / ".gdignore").is_file())
+        self.assertTrue(any("assets/.gdignore" in w for w in out["warnings"]), out["warnings"])
+
+    def test_gdignore_refused_over_res_reference(self):
+        proj = self.project(minimal_project())
+        (proj / "art").mkdir()
+        (proj / "art" / "rock.png").write_bytes(b"png")
+        (proj / "main.tscn").write_text('[ext_resource type="Texture2D" path="res://art/rock.png" id="1"]\n')
+        code, out, _ = profile_cli("init", proj, "--answers", json.dumps({"paths": {"art_source": "art"}}))
+        self.assertEqual(code, 5, out)
+        self.assertTrue(any("res://art/rock.png" in c and "main.tscn" in c for c in out["conflicts"]), out)
+        self.assertFalse((proj / "art" / ".gdignore").exists())
+        # asset_state.py new (the repair path) refuses the same way
+        code, out, _ = profile_cli("init", proj, "--answers", json.dumps({"paths": {"art_source": "art"}}),
+                                   "--confirm-gdignore")
+        self.assertEqual(code, 0, out)
+        (proj / "art" / ".gdignore").unlink()
+        code, out, _ = asset_cli("new", proj, "crate", "--class", "small_prop")
+        self.assertEqual(code, 5, out)
+        self.assertFalse((proj / ".claude" / "tripo" / "assets" / "crate.json").exists())
+        code, out, _ = asset_cli("new", proj, "crate", "--class", "small_prop", "--confirm-gdignore")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(out["created"], ["art/.gdignore"])
 
     def test_game_camera_pitch_sign(self):
         # T17 F3: pitch is degrees above the horizon (render_sheet.py --game-cam convention)
