@@ -171,9 +171,36 @@ class Classification(unittest.TestCase):
                     'cat > a.md <<"EOF"\ntripo redo @a\nEOF',
                     "cat > a.md <<-EOF\n\ttripo make x.png\n\tEOF",
                     "python3 - <<EOF\nprint('tripo make x.png')\nEOF",
-                    "cat <<A > a.md; cat <<B > b.md\ntripo redo\nA\ntripo make x\nB"]:
+                    "cat <<A > a.md; cat <<B > b.md\ntripo redo\nA\ntripo make x\nB",
+                    # I3: the standard PR/commit pattern quotes tripo commands in markdown
+                    "gh pr create --title t --body \"$(cat <<'EOF'\n## Summary\n"
+                    "- `tripo make \"crate\"` now asks\n- `tripo redo` is denied (it skips "
+                    "the plan)\nEOF\n)\"",
+                    "git commit -m \"$(cat <<'EOF'\nfix: `tripo make x` asks (a) b)\nEOF\n)\""]:
             with self.subTest(cmd=cmd):
                 self.assertSilent(cmd)
+
+    def test_substitutions_follow_bash_quoting(self):
+        # I3, controller ruling: bash semantics. Single quotes and quoted heredoc
+        # bodies are literal; an escaped backtick is literal; a backtick pair or $(...)
+        # inside double quotes is live (bash would run it), so it asks.
+        for cmd in ["echo '$(tripo make x)'", "git commit -m 'fix: `tripo make x` asks'",
+                    'git commit -m "fix: \\`tripo make x\\` asks"',
+                    "echo 'say \"$(tripo redo)\"'",
+                    "x=$(tripo balance --json); echo \"$x\""]:
+            with self.subTest(cmd=cmd):
+                self.assertSilent(cmd)
+        for cmd in ['git commit -m "fix: `tripo make x.png --model tripo-v3.1` asks"',
+                    'echo "a $(tripo redo @a) b"', "echo $(tripo redo @a)",
+                    "cat > a.md <<EOF\nit's $(tripo make x.png --model tripo-v3.1)\nEOF"]:
+            with self.subTest(cmd=cmd):
+                self.assertAsk(cmd)
+        # a $(...) program is a command output the lock cannot see through
+        self.assertIn("görülemeyen", self.assertAsk("$(command -v tripo) make x.png"))
+        # a substitution inside a loop body runs once per iteration
+        self.assertDeny('for i in 1 2; do echo "$(tripo make x.png --model tripo-v3.1)"; done')
+        # two live substitutions with paid calls are two paid steps
+        self.assertDeny('echo "$(tripo redo @a) `tripo redo @b`"')
 
     def test_heredoc_live_parts_still_caught(self):
         # a heredoc fed to a shell runs its body

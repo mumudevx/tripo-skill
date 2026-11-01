@@ -111,37 +111,73 @@ def _lex(command):
 HEREDOC_DELIM_RE = re.compile(r"""(-?)[ \t]*(?:'([^'\n]*)'|"([^"\n]*)"|(\\?)([^\s;&|<>()'"`]+))""")
 
 
-def _heredocs(command):
-    """Cut heredoc bodies out of `command`, tracking quotes so a '<<' inside a string is not
-    an operator. Returns (command without bodies, [(body, quoted delimiter, operator line)]).
-    An unterminated body runs to the end, as in the shell."""
-    out, bodies, pending = [], [], []
-    i, n, q = 0, len(command), None
+SUB_MARK = "$__tg_sub{}__"
+SUB_RE = re.compile(r"\$__tg_sub(\d+)__")
+
+
+def _scan(s, i=0, close=False, heredoc_body=False):
+    """Walk shell text from `i`, tracking quotes like the shell (I3).
+
+    Cuts heredoc bodies out, and replaces every live command substitution with
+    SUB_MARK.format(n): `$(...)` and backticks are live unquoted and inside double
+    quotes, literal inside single quotes and inside quoted heredoc bodies. A `$(...)`
+    body is matched with its own quote and heredoc tracking, so a quoted heredoc in
+    it (`"$(cat <<'EOF' ... EOF)"`) hides its text and parentheses.
+
+    close: stop at the ')' that closes a `$(` and return its index as `end`.
+    heredoc_body: `s` is an unquoted heredoc body: quotes are plain characters.
+    Returns (end, text, heredocs [(body, quoted delimiter, operator line)], subs).
+    An unterminated body or quote runs to the end, as in the shell."""
+    out, heredocs, subs, pending = [], [], [], []
+    n, q, depth = len(s), None, 0
     while i < n:
-        c = command[i]
-        if q:
-            if c == "\\" and q == '"':
-                out.append(command[i:i + 2])
-                i += 2
-                continue
-            q = None if c == q else q
-        elif c == "\\":
-            out.append(command[i:i + 2])
+        c = s[i]
+        if q == "'":
+            out.append(c)
+            q = None if c == "'" else q
+            i += 1
+            continue
+        if c == "\\":
+            out.append(s[i:i + 2])
             i += 2
             continue
-        elif c in "'\"":
+        if c == "`" or s.startswith("$(", i):
+            if c == "`":
+                j = i + 1
+                while j < n and s[j] != "`":
+                    j += 2 if s[j] == "\\" else 1
+                body = s[i + 1:j]
+            else:
+                j = _scan(s, i + 2, close=True)[0]
+                body = s[i + 2:j]
+            out.append(SUB_MARK.format(len(subs)))
+            subs.append(body)
+            i = j + 1
+            continue
+        if q == '"' or heredoc_body:
+            out.append(c)
+            q = None if c == q else q
+            i += 1
+            continue
+        if c in "'\"":
             q = c
-        elif command.startswith("<<<", i):
+        elif close and c == "(":
+            depth += 1
+        elif close and c == ")":
+            if depth == 0:
+                return i, "".join(out), heredocs, subs
+            depth -= 1
+        elif s.startswith("<<<", i):
             out.append("<<<")
             i += 3
             continue
-        elif command.startswith("<<", i):
-            m = HEREDOC_DELIM_RE.match(command, i + 2)
+        elif s.startswith("<<", i):
+            m = HEREDOC_DELIM_RE.match(s, i + 2)
             if m:
                 quoted = m.group(2) is not None or m.group(3) is not None or bool(m.group(4))
                 delim = next(g for g in (m.group(2), m.group(3), m.group(5)) if g is not None)
                 pending.append((m.group(1) == "-", delim, quoted))
-                out.append(command[i:m.end()])
+                out.append(s[i:m.end()])
                 i = m.end()
                 continue
         elif c == "\n" and pending:
@@ -152,18 +188,18 @@ def _heredocs(command):
             for strip_tabs, delim, quoted in pending:
                 body = []
                 while j < n:
-                    k = command.find("\n", j)
+                    k = s.find("\n", j)
                     k = n if k == -1 else k
-                    ln, j = command[j:k], k + 1
+                    ln, j = s[j:k], k + 1
                     if (ln.lstrip("\t") if strip_tabs else ln) == delim:
                         break
                     body.append(ln)
-                bodies.append(("\n".join(body), quoted, line))
+                heredocs.append(("\n".join(body), quoted, line))
             pending, i = [], j
             continue
         out.append(c)
         i += 1
-    return "".join(out), bodies
+    return n, "".join(out), heredocs, subs
 
 
 def _base(word):
@@ -179,25 +215,10 @@ def _feeds_shell(words):
     return any(_base(w) in SHELLS for w in words)
 
 
-def _substitutions(token):
-    """Bodies of $(...) and `...` inside one word (double quotes keep them live)."""
-    out = []
-    i = token.find("$(")
-    while i != -1:
-        depth, j = 1, i + 2
-        while j < len(token) and depth:
-            depth += {"(": 1, ")": -1}.get(token[j], 0)
-            j += 1
-        out.append(token[i + 2:j - 1 if depth == 0 else j])
-        i = token.find("$(", j)
-    parts = token.split("`")
-    out += parts[1::2]
-    return out
-
-
-def _segments(tokens, herestrings=None):
-    """Split tokens into simple commands. `herestrings` collects (segment index, word) for
-    every '<<<' so a here-string fed to a shell can be scanned."""
+def _segments(tokens, redirects=None):
+    """Split tokens into simple commands. `redirects` collects (segment index, operator,
+    target word) for every redirection, so a here-string fed to a shell and a command
+    substitution in a target can be scanned."""
     seg, out = [], []
     i = 0
     while i < len(tokens):
@@ -209,8 +230,8 @@ def _segments(tokens, herestrings=None):
         elif t in REDIRECTS:
             if seg and seg[-1].isdigit():
                 seg.pop()  # fd number of 2>&1
-            if t == "<<<" and herestrings is not None and i + 1 < len(tokens):
-                herestrings.append((len(out), tokens[i + 1]))
+            if redirects is not None and i + 1 < len(tokens):
+                redirects.append((len(out), t, tokens[i + 1]))
             i += 1  # the target
         else:
             seg.append(t)
@@ -321,7 +342,7 @@ def tripo_calls(command, cwd=None, _tripo_in=None, _repeat=None):
     find -exec, a function called twice) or is None."""
     if _tripo_in is None:
         _tripo_in = "tripo" in command.lower()
-    command, heredocs = _heredocs(command)
+    _, command, heredocs, subs = _scan(command)
     tokens = _lex(command)
     calls = []
 
@@ -332,20 +353,20 @@ def tripo_calls(command, cwd=None, _tripo_in=None, _repeat=None):
         if _feeds_shell(re.split(r"[\s|;&()]+", line)):
             calls += sub(body)  # the shell runs the body
         elif not quoted:
-            for s in _substitutions(body):  # an unquoted delimiter keeps $(...) live
+            for s in _scan(body, heredoc_body=True)[3]:  # an unquoted delimiter keeps $(...) live
                 calls += sub(s)
-    for tok in tokens:
-        for body in _substitutions(tok):
-            calls += sub(body)
-    herestrings = []
-    segments = _segments(tokens, herestrings)
-    for idx, word in herestrings:
-        if idx < len(segments) and _feeds_shell(segments[idx]):
+    redirects = []
+    segments = _segments(tokens, redirects)
+    extra = {}  # segment index -> redirect targets
+    for idx, op, word in redirects:
+        extra.setdefault(idx, []).append(word)
+        if op == "<<<" and idx < len(segments) and _feeds_shell(segments[idx]):
             calls += sub(word)
+    seen_subs = set()
 
     loop, braces, pending_func, invoked = 0, [], None, {}
-    for seg in segments:
-        seg, header = list(seg), False
+    for index, seg in enumerate(segments):
+        words, seg, header = seg + extra.get(index, []), list(seg), False
         if pending_func and seg[:1] != ["{"]:
             pending_func = None
         while seg:  # control words: track loops and function bodies
@@ -375,17 +396,27 @@ def tripo_calls(command, cwd=None, _tripo_in=None, _repeat=None):
                 pending_func, seg = seg[0], seg[2:]
             else:
                 break
-        if header:
-            continue
         repeat = _repeat or ("döngü içinde" if loop else None)
         func = next((f for f in reversed(braces) if f), None)
-        cwd, found, prog = _segment_calls(seg, cwd, _tripo_in, sub, repeat)
+        found = []
+        for n in (int(m) for w in words for m in SUB_RE.findall(w)):
+            if n < len(subs) and n not in seen_subs:  # $(...) runs where its word is
+                seen_subs.add(n)
+                found += sub(subs[n], cwd, repeat)
+        if not header:
+            cwd, more, prog = _segment_calls(seg, cwd, _tripo_in, sub, repeat)
+            found += more
+        else:
+            prog = None
         for call in found:
             if func:
                 call["func"] = func
         if prog:
             invoked.setdefault(prog, []).append(repeat)
         calls += found
+    for n, body in enumerate(subs):  # a substitution outside every segment word
+        if n not in seen_subs:
+            calls += sub(body)
     for call in calls:  # a function body runs once per call of the function
         func = call.pop("func", None)
         runs = invoked.get(func, [])
@@ -414,7 +445,9 @@ def _segment_calls(seg, cwd, tripo_in, sub, repeat=None):
         calls.append(_call(argv[1:], cwd))
     elif prog.startswith("$") and len(prog) > 1:
         if tripo_in:
-            calls.append(_opaque(f"program bir değişken ({prog}), tripo olabilir"))
+            shown = SUB_RE.sub("$(…)", prog)
+            calls.append(_opaque(f"program bir değişken ya da komut çıktısı ({shown}), "
+                                 "tripo olabilir"))
     elif not _read_only(argv):
         # Fail closed: an unknown runner (mise exec, npm exec, find -exec, caffeinate,
         # watch, ...) is analysed from its first tripo word, or its first shell.
