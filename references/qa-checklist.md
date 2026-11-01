@@ -36,9 +36,9 @@ python3 scripts/bl.py render_sheet.py -- raw/<label>/model.glb --png qa/v01/shee
 | `S0` | broken: unusable in game or pipeline (rig, collision, import) |
 | `S1` | visible in game |
 | `S2` | cosmetic |
-| `info` | not calibrated yet, or just above a limit: reported, never blocks, never decides on its own |
+| `info` | did not pass calibration (agent-eye), or just above a limit: reported, never blocks, never decides on its own |
 
-`scripts/data/qa_thresholds.json` `"qa"` holds the thresholds and a severity per code. A code at `info` has no calibrated threshold yet (spec 12: guessed thresholds do not ship). `OVER_BUDGET` is computed (`rule`): info above 1.0 x the budget, S1 above 1.1 x, S0 above 2 x. `TOO_MANY_INFLUENCES` ships at S1 (4 weights per vertex is the engine skinning default). Severity also depends on use: an open edge matters for a rig, collision or LOD, much less for a static background prop.
+`scripts/data/qa_thresholds.json` `"qa"` holds the thresholds and a severity per code. A code at `info` did not pass calibration (spec 12: guessed thresholds do not ship): its finding is a lead for the agent's eye, never a verdict. Calibration (`docs/calibration-2026-10-31.md`, 159 direct Tripo outputs, labels in `tests/calibration_labels.json`) lets a code ship only if it catches every labelled positive and stays silent on every labelled clean case; only the two rules below passed. `OVER_BUDGET` is computed (`rule`): info above 1.0 x the budget, S1 above 1.1 x, S0 above 2 x. `TOO_MANY_INFLUENCES` ships at S1 (4 weights per vertex is the engine skinning default). Severity also depends on use: an open edge matters for a rig, collision or LOD, much less for a static background prop.
 
 ## 4. Code catalogue
 
@@ -47,22 +47,22 @@ Topology metrics run on a welded copy (Tripo splits vertices at every UV seam; t
 | code | measures | threshold key (current) | detection notes |
 |---|---|---|---|
 | `OVER_BUDGET` | triangles vs `--budget` | `over_budget_s1` 1.1, `over_budget_s0` 2.0 | the gap between the requested `face_limit` and the result is normal (B8) |
-| `NON_MANIFOLD` | edges shared by 3+ faces after the weld | `nonmanifold_edges_max` 0 | matters for rig, collision, LOD, baking |
-| `HOLES` | open (boundary) edges after the weld | `boundary_edges_max` 0 | a high `boundary_edges_raw` with few after the weld is just seams |
-| `LOOSE_PARTS` | separate pieces under `loose_tris_pct` 1.0% of the triangles each | `loose_parts_max` 0 | `islands` lists the 32 largest, `island_count` all; real separate parts (wheels, lids) are not defects: check on the sheet |
-| `FLIPPED_NORMALS` | % of triangles winding against their stored normals | `flipped_pct_max` 0.5 | Tripo normals are never recomputed globally (B7) |
-| `SLIVERS` | % of triangles with a corner under 5 degrees | `sliver_pct_max` 3.0 | bicycle v1 2.5% from one image, 0.8% from views |
-| `GROUND_SLAB` | a thin connected sheet in the bottom 3% of the height spanning 60% or more of the footprint with upward faces over 25% of it | boolean | the ground line or plate in the reference; pedal-car discs |
-| `NOT_GROUNDED` | % of triangles in the bottom 3% of the height | `low_band_tris_pct_min` 0.1 | the model rests on a point (tilted, floating wheels) |
-| `ASYMMETRY` | mean distance of X-mirrored vertices to the surface, % of the diagonal | `asymmetry_pct_max` 0.1 | needs `--symmetric x` and a model turned to face -Y; symmetric models measured 0.004 to 0.03, lopsided ones 0.15 to 3 |
-| `BACK_COPY` | similarity of front and back relief (0 to 1) | `back_relief_max` 0.8 | front detail copied onto the back (tool chest, engine block, traffic light); always confirm by eye |
-| `UV_OVERLAP` | % of used UV texels covered by more than one triangle | `uv_overlap_pct_max` 1.0 | deliberate mirrored UVs also overlap |
-| `LOW_TEXEL` | median texel density, px per model unit | `texel_density_min` 256 | compare with `profile.json` `texel_density` when set |
-| `PALETTE_DRIFT` | mean delta E between texture and reference palette | `palette_delta_e_max` 10.0 | needs `--ref-palette`; about 25% saturation loss was measured before |
-| `BAKED_LIGHT` | correlation of albedo brightness with upward normals | `baked_light_max` 0.35 | also look at the light-sweep row: baked light does not move with the key light |
+| `NON_MANIFOLD` | edges shared by 3+ faces after the weld | `nonmanifold_edges_max` 0 | matters for rig, collision, LOD, baking; info, agent-eye: no labelled positive (57% of the corpus fires) |
+| `HOLES` | open (boundary) edges after the weld | `boundary_edges_max` 0 | a high `boundary_edges_raw` with few after the weld is just seams; info, agent-eye: no labelled positive (79% of the corpus fires) |
+| `LOOSE_PARTS` | separate pieces under `loose_tris_pct` 1.0% of the triangles each | `loose_parts_max` 0 | `islands` lists the 32 largest, `island_count` all; real separate parts (wheels, lids) are not defects: check on the sheet; info, agent-eye: jerry_can_g2's extra handles are fused, so it measures 0 |
+| `FLIPPED_NORMALS` | % of triangles winding against their stored normals | `flipped_pct_max` 0.5 | Tripo normals are never recomputed globally (B7); info, agent-eye: no labelled positive |
+| `SLIVERS` | % of triangles with a corner under 5 degrees | `sliver_pct_max` 3.0 | info, agent-eye: bicycle_v1 8.0 vs bicycle_v2 2.7, but clean decimated parts measure 22 to 24 |
+| `GROUND_SLAB` | a thin connected sheet in the bottom 3% of the height spanning 60% or more of the footprint with upward faces over 25% of it | boolean | the ground line or plate in the reference; info, agent-eye: the pedal-car discs are fused into the tyres and raise no flag |
+| `NOT_GROUNDED` | % of triangles in the bottom 3% of the height | `low_band_tris_pct_min` 0.1 | the model rests on a point (tilted, floating wheels); info, agent-eye: no labelled positive |
+| `ASYMMETRY` | mean distance of X-mirrored vertices to the surface, % of the diagonal | `asymmetry_pct_max` 0.1 | needs `--symmetric x` and a model turned to face -Y; info, agent-eye: tool_chest_g1 (turned) 0.27, but the clean bellows measures 0.40 from its pleat relief |
+| `BACK_COPY` | similarity of front and back relief (0 to 1) | `back_relief_max` 0.8 | info, agent-eye: missed the tool chest (0.07) and engine block (0.45) copies, while round parts measure 0.999 |
+| `UV_OVERLAP` | % of used UV texels covered by more than one triangle | `uv_overlap_pct_max` 1.0 | deliberate mirrored UVs also overlap; info, agent-eye: no labelled positive |
+| `LOW_TEXEL` | median texel density, px per model unit | `texel_density_min` 256 | compare with `profile.json` `texel_density` when set; info, agent-eye: no labelled positive |
+| `PALETTE_DRIFT` | mean delta E between texture and reference palette | `palette_delta_e_max` 10.0 | needs `--ref-palette`; about 25% saturation loss was measured before; info, agent-eye: no labelled positive |
+| `BAKED_LIGHT` | correlation of albedo brightness with upward normals | `baked_light_max` 0.35 | also look at the light-sweep row: baked light does not move with the key light; info, agent-eye: no labelled positive (clean metal knobs measure 0.6) |
 | `TOO_MANY_INFLUENCES` | most bone weights on one vertex | `influences_max` 4 | rigged models only; S1 |
-| `MULTI_MATERIAL` | material count | `materials_max` 1 | 1 material per prop is the draw-call rule; glass may need a second |
-| `TEXTURE_OVERSIZE` | largest texture side | `texture_max_px` 2048 | fixed in Godot import or Blender, not a generation problem |
+| `MULTI_MATERIAL` | material count | `materials_max` 1 | 1 material per prop is the draw-call rule; glass may need a second; info, agent-eye: no labelled positive |
+| `TEXTURE_OVERSIZE` | largest texture side | `texture_max_px` 2048 | fixed in Godot import or Blender, not a generation problem; info, agent-eye: no labelled positive |
 
 Extra metrics with no code: `tris`, `verts`, `verts_welded`, `meshes`, `images` (name, w, h), `bbox` (min, max, size in Blender axes, Z up), `uv`, `palette.chroma_ratio`, `skin.joints`.
 
@@ -106,14 +106,14 @@ Run QA and the render sheet again on the new version (`qa/vNN+1/`) and compare b
 
 | fixture | known defect | caught by |
 |---|---|---|
-| `tool_chest_g1` | lopsided, front detail on the back, 17430 tris for 8000 | `ASYMMETRY`, `BACK_COPY` (after turning), `OVER_BUDGET` |
-| `tool_chest_final` | mirrored-half fix | clean (asymmetry 0.011) |
-| `pedal_car_raw` | 12367 tris for 10000, ground discs | `OVER_BUDGET`, `GROUND_SLAB`-like |
+| `tool_chest_g1` | lopsided, front detail on the back, 17430 tris for 8000 | `OVER_BUDGET` S0; asymmetry and back copy: agent-eye |
+| `tool_chest_final` | mirrored-half fix | clean (asymmetry 0.011, not a calibration label) |
+| `pedal_car_raw` | 12367 tris for 10000, ground discs | `OVER_BUDGET` S1; discs: agent-eye |
 | `pickup_g2` | bed closed with a lid | agent-eye only |
-| `jerry_can_g2` | three handles | `LOOSE_PARTS` or agent-eye |
-| `bicycle_v1` / `bicycle_v2` | slivers / clean | `SLIVERS` |
-| `back_panel_v2_20k` | 29943 tris for 20000 (decimate v2.0) | `OVER_BUDGET` |
-| `engine_block_g1` | front detail on the back | `BACK_COPY` |
+| `jerry_can_g2` | three handles | agent-eye (fused, `LOOSE_PARTS` 0) |
+| `bicycle_v1` / `bicycle_v2` | slivers, teeth / clean | agent-eye (`SLIVERS` info) / clean |
+| `back_panel_v2_20k` | 29943 tris for 20000 (decimate v2.0) | `OVER_BUDGET` S1 |
+| `engine_block_g1` | belt and pulleys copied onto the back | agent-eye (`BACK_COPY` 0.45) |
 | `crew_rigged` | 27 joints, 1 skin, `tripo::` names | `TOO_MANY_INFLUENCES`, `godot_place.py rig_accept` |
 
-Codes still at `info` are calibrated on the local corpus (plan Task 15); until then they are leads for the agent's eye, not verdicts.
+Clean controls: `bellows`, `winding_knob`, `shutter_release` (patina, shipped as generated) and `bicycle_v2` raise no shipping code. Codes at `info` failed calibration on this corpus: they are leads for the agent's eye, not verdicts. Re-run `scripts/calibrate.py` when new labelled cases arrive.

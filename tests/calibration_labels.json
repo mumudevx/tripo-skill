@@ -1,0 +1,90 @@
+{
+  "_comment": "QA calibration labels (scripts/calibrate.py, tests/test_qa.py test_calibrated_labels). Direct Tripo outputs only (K17); source: _research/prior-testset.md. `positive`: known defects that a code should catch. `clean`: no known defect, so no shipping code may fire. `agent_eye`: known defects with no automatic code, checked on the render sheet; a case with neither `positive` nor `clean` (pickup_g2) is reported but not scored. `yaw`: the model is first turned by normalize.py (temp copy) so its left/right lies on world X; `args` go to qa.py. Fronts were read off the render sheets: tool_chest_g1 drawers face +X raw (+Y after yaw 90), engine_block_g1 belt end faces +X, the bellows tube axis is X raw (its frames are front and back; after yaw 90 the mirror compares its two pleated sides).",
+  "cases": [
+    {
+      "name": "tool_chest_g1",
+      "fixture": "tool_chest_g1",
+      "yaw": 90,
+      "args": ["--budget", 8000, "--symmetric", "x", "--front", "+y"],
+      "positive": ["OVER_BUDGET", "ASYMMETRY", "BACK_COPY"],
+      "agent_eye": ["drawers and pulls copied onto the plain back"],
+      "source": "T3: 17430 tris for face_limit 8000; one side handle; drawers copied onto the back"
+    },
+    {
+      "name": "pedal_car_raw",
+      "fixture": "pedal_car_raw",
+      "args": ["--budget", 10000],
+      "positive": ["OVER_BUDGET", "GROUND_SLAB"],
+      "agent_eye": ["thin ground discs fused into 3 of 4 tyres", "3 wheels differ from the clean one"],
+      "source": "T2: 12367 tris for face_limit 10000; ground discs fused into the tyres"
+    },
+    {
+      "name": "pickup_g2",
+      "fixture": "pickup_g2",
+      "args": [],
+      "agent_eye": ["bed closed with a flat lid (closed cavity): no automatic code"],
+      "source": "T4: the only known defect is the closed bed, which no metric measures"
+    },
+    {
+      "name": "jerry_can_g2",
+      "fixture": "jerry_can_g2",
+      "args": [],
+      "positive": ["LOOSE_PARTS"],
+      "agent_eye": ["three handles and a second cap"],
+      "source": "T8: three handles and a second cap"
+    },
+    {
+      "name": "bicycle_v1",
+      "fixture": "bicycle_v1",
+      "args": [],
+      "positive": ["SLIVERS"],
+      "agent_eye": ["tyre and rim teeth"],
+      "source": "T9: single-image P1 result, sliver triangles and teeth"
+    },
+    {
+      "name": "bicycle_v2",
+      "fixture": "bicycle_v2",
+      "args": ["--budget", 12000],
+      "clean": true,
+      "source": "T9: shipped unfixed (place_model.py --max-tris 12000 only)"
+    },
+    {
+      "name": "back_panel_v2_20k",
+      "fixture": "back_panel_v2_20k",
+      "args": ["--budget", 20000],
+      "positive": ["OVER_BUDGET"],
+      "agent_eye": ["spikes"],
+      "source": "T10: decimate v2.0 gave 29943 tris for 20000"
+    },
+    {
+      "name": "engine_block_g1",
+      "fixture": "engine_block_g1",
+      "args": ["--front", "+x"],
+      "positive": ["BACK_COPY"],
+      "agent_eye": ["belt and pulleys copied onto the plain back"],
+      "source": "T7: front belt and pulleys copied onto the back (fix_engine_block.py)"
+    },
+    {
+      "name": "bellows",
+      "path": "/Users/muhsin/Documents/GitHub/mumudevx/patina/art_source/antiques/folding_camera_01/tripo_raw/bellows/reduced/tripo-out/decimate-20-7a86544e/model.glb",
+      "yaw": 90,
+      "args": ["--symmetric", "x", "--front", "+y"],
+      "clean": true,
+      "source": "T11: 'fine' (patina docs/later.md); the shipped GLB is this file byte for byte"
+    },
+    {
+      "name": "winding_knob",
+      "path": "/Users/muhsin/Documents/GitHub/mumudevx/patina/art_source/antiques/folding_camera_01/tripo_raw/winding_knob/reduced/tripo-out/decimate-24-0f4f1108/model.glb",
+      "args": ["--symmetric", "x"],
+      "clean": true,
+      "source": "T11: 'fine' (patina docs/later.md)"
+    },
+    {
+      "name": "shutter_release",
+      "path": "/Users/muhsin/Documents/GitHub/mumudevx/patina/art_source/antiques/folding_camera_01/tripo_raw/shutter_release/reduced/tripo-out/decimate-27-672cf3a9/model.glb",
+      "args": ["--symmetric", "x"],
+      "clean": true,
+      "source": "T11: 'fine' (patina docs/later.md)"
+    }
+  ]
+}
