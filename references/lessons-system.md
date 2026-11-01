@@ -1,6 +1,6 @@
 # Lessons: format, scope, promotion, staleness
 
-When to read this: at session start (read both lesson files), and in phase 9 (end of task: write lessons, offer promotions); also after `cli_watch.py` reports a new CLI or model version.
+When to read this: at session start (read both lesson files), whenever a step teaches something (write the project lesson then), and in phase 9 (end of task: fill gaps, offer promotions); also after `cli_watch.py` reports a new CLI or model version.
 
 ## 1. Two layers (spec 17.1)
 
@@ -50,9 +50,16 @@ Every command also takes `--state FILE` and `--general FILE` (tests use them so 
 - **promote** refuses without `--approved` (exit 2) and an unknown id exits 3. It appends the lesson to `general.md` (or confirms the one with the same title there), with `source: <project L<n>>`, and marks the project copy `promoted`.
 - **stale** marks `active` lessons `needs_reverify` in `general.md`, in every registered project and in `--project`, when the lesson's `cli` differs from `--cli`, or when its `model` is the same family with another date (`v3.1-20250101` vs `v3.1-20260211`). Lessons of other model families are untouched. `promoted` project copies are skipped (the general copy carries the status).
 
-## 4. When to write a lesson (phase 9)
+## 4. When to write a lesson (when it is learned, spec 17)
 
-Write a project lesson, without asking, whenever a step taught something measurable:
+A project lesson is written at the moment it is learned, without asking, never saved for the end: a session can stop before placement (no approval, the user ends it) and an unwritten lesson is lost. Checkpoints:
+
+- after a paid step, once its real triangles and credits are known;
+- after each QA/fix decision: the Tripo defect, what fixed it or why nothing could (a reference at 700 px that still gave a usable mesh is a lesson too);
+- after any user correction: a front axis, a profile value, a preference;
+- after a placement plan: a uniform fit that shrank the model because the placeholder's aspect differs, a collision shape that no longer fits.
+
+Phase 9 then adds what is still missing (`add` with the same title confirms, it never duplicates) and asks the one promotion question. A task that stops early still runs phase 9's promotion question before the session ends, or at the next session start for that asset. What to write, whenever a step taught something measurable:
 
 - a measured number that differs from the plan (triangles vs `face_limit`, real credits vs estimate, the import price);
 - a QA finding that a recipe fixed, and the recipe that did it;

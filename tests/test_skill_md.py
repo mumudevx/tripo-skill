@@ -36,6 +36,7 @@ CARRY_FORWARD = {
     "batched question": "1A, 2B, 3 geç",
     "failed CLI install is reported (K13, T14-1)": "update_error",
     "failed update check is reported (K13, T14-1)": "update_check_error",
+    "project lessons are written when learned, not only at the end (spec 17, T17 F1)": "Lessons, when learned",
 }
 
 
