@@ -150,7 +150,7 @@ The dry-run's `generation_credits_estimate` wins for generation steps (H3.1 and 
 | complete ai_completion / quick_cap | 50 / 30 |
 | smartsegment model / image | 55 / 85 |
 | convert basic / advanced | 5 / 10 |
-| rig-check | 0 |
+| rig-check | 0 on a task; a file input adds an import task (price unknown) |
 | rig | 25 |
 | retarget | 10 per animation |
 | image_to_multiview | 10 |

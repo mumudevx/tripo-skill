@@ -6,7 +6,7 @@ When to read this: phase 7 (rig + animation), for characters and anything else t
 
 ```
 generation -> paid Tripo fixes -> Blender geometry fixes + normalize -> budget (decimate)
-  -> clean GLB -> rig-check (free) -> rig (25) -> animations (10 each) -> Godot rig check
+  -> clean GLB -> rig-check (free on a task; a file adds a paid import) -> rig (25) -> animations (10 each) -> Godot rig check
 ```
 
 - Rig is the only cloud step that comes after local fixes: skinning must happen on the final mesh. Decimate to the budget before rigging.
@@ -18,7 +18,7 @@ generation -> paid Tripo fixes -> Blender geometry fixes + normalize -> budget (
 
 Default: **A-pose**, arms about 40 degrees from the body, elbows slightly bent, hands open and empty, legs slightly apart, clear gaps between arms, torso and legs. The user's only rig that passed was such an A-pose model; the first model failed because a lance was fused to the hands and torso. Tripo's docs and CLI suggest a T-pose instead, and Godot's humanoid profile uses a T-pose as its reference. Which pose rigs better on Tripo is an open question for the first paid run (compare, then record a lesson). Held props are always separate models attached in the engine. The image checks are in `image-preflight.md` items 6 and 7.
 
-## 3. rig-check (free, its own command)
+## 3. rig-check (free on a task, its own command; a file input adds a paid import)
 
 Step: `{"kind": "rig_check", "label": "<asset>-rig_check-vNN", "input": {"file": "export/<asset>.glb"}}` (or `{"task": "@<label>"}` when the model was not edited locally).
 
@@ -29,12 +29,16 @@ tripo make export/worker.glb --then rig-check --name worker-rig_check-v01
 
 - Returns `riggable` (true/false) and `rig_type` (`biped`, `quadruped`, `hexapod`, `octopod`, `avian`, `serpentine`, `aquatic`). It never returns `others`.
 - The verdict is not stored in `task.json`: read it from the command's JSON output and write it into the asset state.
-- A file input adds an import task (price not published; it also normalizes scale). The lock window says "tahmin yok".
+- A file input adds an import task (price not published; it also normalizes scale): the step is paid (`paid: true`), the lock window says "tahmin yok". Verified with a free dry-run on 0.9.0: `make <glb> --then rig-check` plans `import` + `rig-check`.
+- Import only once. After a rig-check on a file, chain `rig` from that import task (`"input": {"task": "@<asset>-rig_check-vNN"}`; plain `@<name>` is the import, `@<name>-rig-check` the check) instead of the file, so the model is not imported and paid for twice.
+- tripo-cli 0.9.0 also has `tripo anim check <glb>`, which uploads the file and runs rig-check with no import task. `tripo_plan.py` does not build it, so the skill does not use it (hard rule 1: steps come from the planner).
 - `riggable: false`: stop and say why in one line. Usually a prop or the arms are fused to the body. Offer the image fix (A-pose, empty hands, prompt in `image-preflight.md` item 7) and a regeneration (counts toward the cap of 2). `rig_type=others` on rig v3.0 is untested for unriggable models.
 
 ## 4. rig (25 credits, plus the import when the input is a file)
 
 Step: `{"kind": "rig", "label": "<asset>-rig-vNN", "input": {"file": "export/<asset>.glb"}, "model": "v3.0", "params": {"rig_type": "<from rig-check>", "spec": "mixamo"}}`
+
+After a rig-check on the file, use `"input": {"task": "@<asset>-rig_check-vNN"}` (the import task) instead of the file: one import, not two.
 
 <!-- unverified -->
 ```bash
@@ -106,7 +110,7 @@ python3 scripts/godot_place.py rig_accept <project> export/worker_rigged.glb
 
 | step | credits |
 |---|---|
-| rig-check | 0 |
+| rig-check | 0 on a task (+ import, unknown, for a file input) |
 | rig | 25 (+ import, unknown, for a file input) |
 | retarget | 10 per animation |
 | Smart UV after rig (keeps rig and animation) | 20 |
