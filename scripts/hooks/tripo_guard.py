@@ -97,7 +97,7 @@ def _lex(command):
     lex = shlex.shlex(command.replace("\\\n", ""), posix=True, punctuation_chars=PUNCT)
     lex.whitespace = " \t\r"  # a newline separates commands
     lex.whitespace_split = True
-    lex.commenters = ""  # comments only add false positives, never hide a call
+    lex.commenters = ""  # _scan already dropped comments; a '#' left here is literal
     try:
         tokens = list(lex)
     except ValueError as e:
@@ -118,6 +118,8 @@ def _lex(command):
 HEREDOC_DELIM_RE = re.compile(r"""(-?)[ \t]*(?:'([^'\n]*)'|"([^"\n]*)"|(\\?)([^\s;&|<>()'"`]+))""")
 
 
+# characters after which a word starts (`out` holds one char per entry for these)
+WORD_BREAKS = set(" \t\n;&|()<>")
 SUB_MARK = "$__tg_sub{}__"
 SUB_RE = re.compile(r"\$__tg_sub(\d+)__")
 
@@ -132,7 +134,8 @@ def _scan(s, i=0, close=False, heredoc_body=False):
     it (`"$(cat <<'EOF' ... EOF)"`) hides its text and parentheses.
 
     close: stop at the ')' that closes a `$(` and return its index as `end`.
-    heredoc_body: `s` is an unquoted heredoc body: quotes are plain characters.
+    heredoc_body: `s` is an unquoted heredoc body: quotes and '#' are plain characters.
+    Comments are dropped (an unquoted '#' at the start of a word, to the newline).
     Returns (end, text, heredocs [(body, quoted delimiter, operator line)], subs).
     An unterminated body or quote runs to the end, as in the shell."""
     out, heredocs, subs, pending = [], [], [], []
@@ -165,6 +168,13 @@ def _scan(s, i=0, close=False, heredoc_body=False):
             out.append(c)
             q = None if c == q else q
             i += 1
+            continue
+        if c == "#" and (not out or out[-1] in WORD_BREAKS):
+            # an unquoted '#' that starts a word comments out the rest of the line
+            # (R3): an apostrophe there must not open a quote that hides the next
+            # line. `a#b`, `$#`, `${#x}`, `\#` and quoted '#' stay literal.
+            j = s.find("\n", i)
+            i = n if j == -1 else j
             continue
         if c in "'\"":
             q = c

@@ -202,6 +202,35 @@ class Classification(unittest.TestCase):
         # two live substitutions with paid calls are two paid steps
         self.assertDeny('echo "$(tripo redo @a) `tripo redo @b`"')
 
+    def test_comments_are_dropped(self):
+        # R3: an apostrophe in a comment must not open a quote that hides a call
+        block = ("cd art_src/props/crate/raw/crate-generate-v01\n"
+                 "# run the planner's argv as is\n"
+                 "tripo make crate.png --model tripo-v3.1 --name crate-generate-v01 --json\n"
+                 "# the download lands in tripo-out (that's the frozen raw)\n")
+        self.assertIn("label: crate-generate-v01", self.assertAsk(block))
+        for cmd in ["echo a#b; tripo make x.png", "tripo make x.png # it's paid",
+                    "true;# don't\ntripo redo @a", "(# it's\ntripo redo @a)",
+                    "echo \"$(# it's\ntripo redo @a)\"",
+                    "echo hi |# it's\ntripo redo @a",
+                    "cat > a.md <<'EOF' # it's a note\ntext\nEOF\ntripo redo @a"]:
+            with self.subTest(cmd=cmd):
+                self.assertAsk(cmd)
+        # a comment that only mentions tripo runs nothing
+        for cmd in ["# later: tripo make x", "ls  # then tripo make x.png --model tripo-v3.1",
+                    "echo ${#x}", "echo $# tripo", "echo '#' tripo",
+                    "cat <<'EOF' | sh\n# tripo make x.png\nEOF"]:
+            with self.subTest(cmd=cmd):
+                self.assertSilent(cmd)
+        # '#' inside a word, after $, inside quotes or escaped is not a comment
+        for cmd in ["echo a#b tripo redo; tripo redo @a", "echo \\# x; tripo redo @a",
+                    "echo \"# x\"; tripo redo @a", "echo $#; tripo redo @a",
+                    "echo ${#x}; tripo redo @a"]:
+            with self.subTest(cmd=cmd):
+                self.assertAsk(cmd)
+        # an unquoted heredoc body is data: its '#' does not hide a live $(...)
+        self.assertAsk("cat > a.md <<EOF\n# id: $(tripo redo @a)\nEOF")
+
     def test_heredoc_live_parts_still_caught(self):
         # a heredoc fed to a shell runs its body
         self.assertAsk("bash <<'EOF'\ntripo make x.png --model tripo-v3.1\nEOF")
