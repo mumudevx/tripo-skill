@@ -115,7 +115,7 @@ When only one image exists or a view is broken: `image_to_multiview` (10) or `ed
   raw/<label>/          untouched Tripo output, frozen (run tripo from here)
   work/vNN.blend        editable source, one per fix-recipe run (+ vNN.glb, export.sh)
   fixes/<id>.recipe.json
-  qa/vNN/               qa.json, sheet.png, report.md
+  qa/raw/, qa/vNN/      qa.json, sheet.png, report.md (raw output, work/vNN: same vNN)
   export/               the GLB that goes to Godot
 ```
 

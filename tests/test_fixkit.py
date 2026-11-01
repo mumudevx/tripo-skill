@@ -165,6 +165,9 @@ class Recipes(unittest.TestCase):
             self.assertTrue((work / f"{v}.blend").is_file())
             self.assertTrue((work / f"{v}.glb").is_file())
         self.assertEqual(a["blend"], str(work / "v01.blend"))
+        # T17 F7: the QA folder follows the work version (qa/v02 holds the QA of work/v02)
+        self.assertEqual((a["qa_dir"], b["qa_dir"]),
+                         (str(work.parent / "qa" / "v01"), str(work.parent / "qa" / "v02")))
 
     def test_export_roundtrip(self):
         a, _, work = mirror_run()

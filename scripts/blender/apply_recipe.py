@@ -7,8 +7,11 @@ recipe.json: {"schema": "recipe/1", "asset": "<name>", "source": "<raw model pat
 `source` may be relative to the recipe file. Ops and params: scripts/blender/fixkit/ops.py
 (lengths and regions are bbox fractions, never metres).
 
--> {"version": "vNN", "blend", "glb", "steps": [{"op", "result"}], "tris", "bbox":
+-> {"version": "vNN", "blend", "glb", "qa_dir", "steps": [{"op", "result"}], "tris", "bbox":
     {"min", "max", "size"}, "normals": {"kept", "rebuilt"}}
+
+`qa_dir` is where this version's QA goes: <work>/../qa/vNN, the same vNN as the work file
+(qa/raw holds the raw model's QA). It is named, not created.
 
 Always starts again from the raw model, so the same recipe on the same raw gives the same
 result; each run writes the next free version: <work>/vNN.blend (images packed, editable)
@@ -129,7 +132,9 @@ def run(a):
     tris = ops.tri_count(ctx.meshes)
     bpy.ops.wm.save_as_mainfile(filepath=blend, copy=True)
     export.export_model(glb, "godot")
-    return {"version": version, "blend": blend, "glb": glb, "steps": steps, "tris": tris,
+    qa_dir = os.path.join(os.path.dirname(work), "qa", version)
+    return {"version": version, "blend": blend, "glb": glb, "qa_dir": qa_dir, "steps": steps,
+            "tris": tris,
             "bbox": {"min": lo.tolist(), "max": hi.tolist(), "size": (hi - lo).tolist()},
             "normals": ctx.normal_stats()}
 

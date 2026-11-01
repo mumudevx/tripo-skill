@@ -9,7 +9,7 @@ QA costs 0 credits and runs without asking. It has three parts: numbers (`qa.py`
 ```
 python3 scripts/glbstat.py raw/<label>/model.glb
 python3 scripts/bl.py qa.py -- raw/<label>/model.glb --budget 15000 --front -y --symmetric x --ref-palette refs/front.png --class large_prop
-python3 scripts/bl.py render_sheet.py -- raw/<label>/model.glb --png qa/v01/sheet.png --front -y --game-cam "35,30,50" --light-sweep
+python3 scripts/bl.py render_sheet.py -- raw/<label>/model.glb --png qa/raw/sheet.png --front -y --game-cam "35,30,50" --light-sweep
 ```
 
 - `glbstat.py`: stdlib quick look (`tris`, meshes, materials, images with sizes, skins, joints, animations). GLB/glTF only; FBX/OBJ get `format` and a pointer to `qa.py`.
@@ -19,7 +19,7 @@ python3 scripts/bl.py render_sheet.py -- raw/<label>/model.glb --png qa/v01/shee
   - `--symmetric x` turns on the asymmetry metric (mirror across world X); `none` (default) skips it.
   - `--ref-palette <png>` compares the texture to the reference colours (`PALETTE_DRIFT`).
 - `render_sheet.py`: one PNG, long side at most 1500 px. Rows: `lit`, `lit_no_normalmap` (normal maps cut), `albedo` (flat base colour), `wire`. Columns: front, back, left, right, top, iso, plus `game_cam` with `--game-cam "<yaw>,<pitch>,<fov>"` (from `profile.json` `game_camera`). `--light-sweep` adds 4 iso renders with the key light at 0/90/180/270 degrees. Overlay: a red arrow out of the front face, a ground grid (1 m, or 0.1 m / 0.01 m for small models) and a header with file name, triangle count, front axis and grid size.
-- Save `qa.json`, `sheet.png` and the report under `qa/vNN/` and append a short summary to the asset state: `asset_state.py update <project> <id> --phase qa --append qa=<json>`.
+- Save `qa.json`, `sheet.png` and the report in the folder named after the model checked: `qa/raw/` for the raw output, `qa/vNN/` for `work/vNN` (`apply_recipe.py` prints it as `qa_dir`; never the next free number), and append a short summary to the asset state: `asset_state.py update <project> <id> --phase qa --append qa=<json>`.
 - Blender failures never pass silently: `bl.py` exits non-zero (4 internal, 3 missing input, 2 usage) and leaves no stale result.
 
 ## 2. The front axis comes first (spec 12)
@@ -100,7 +100,7 @@ Hangileri? (ör. "1A, 2B")
 
 ## 7. After every fix
 
-Run QA and the render sheet again on the new version (`qa/vNN+1/`) and compare before and after: the fixed finding should be gone and no new finding should appear (cleanup can create defects: a coarse weld once raised non-manifold edges from 1.8k to 20k in another tool's pipeline).
+Run QA and the render sheet again on the new version (in its own `qa/vNN/`, the `qa_dir` of the `work/vNN` it checks) and compare before and after: the fixed finding should be gone and no new finding should appear (cleanup can create defects: a coarse weld once raised non-manifold edges from 1.8k to 20k in another tool's pipeline).
 
 ## 8. Known cases (direct Tripo outputs, `tests/fixtures.json`)
 
