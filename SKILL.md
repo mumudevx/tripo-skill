@@ -21,7 +21,11 @@ Placeholder in a Godot scene -> reference check -> one paid Tripo step at a time
    - Exit 4 (tripo CLI missing or broken): report it; **no paid step until it is fixed**. Free work goes on. `tripo CLI not found` with `npm` on PATH -> reinstall with `npm install -g tripo-cli@latest` (covered by K13), then re-run the check and `tripo balance`. Usual cause: a Node version manager (mise, nvm) upgraded Node and dropped the global packages; say so in one line.
 2. `tripo balance` (free). Keep the number for the plan lines.
 3. Load `<project>/.claude/tripo/profile.json` (missing -> phase 1). Read both lesson files: `<project>/.claude/tripo/lessons.md` and `lessons/general.md` in this skill. A lesson with `status: needs_reverify` is a warning, not a rule. On conflict the project lesson wins.
-4. Lock check: `grep -q tripo_guard ~/.claude/settings.json` decides the approval mode (section 3).
+4. Lock check (functional, decides the approval mode in section 3). Pipe a synthetic paid event into the installed hook command; never trust a grep of the settings:
+   ```
+   python3 -c 'import json,os,subprocess as sp; h=[x["command"] for m in json.load(open(os.path.expanduser("~/.claude/settings.json"))).get("hooks",{}).get("PreToolUse",[]) for x in m.get("hooks",[]) if "tripo_guard" in x.get("command","")]; e=json.dumps({"tool_name":"Bash","tool_input":{"command":"tripo make x.png --model tripo-v3.1"}}); print("LOCK OK" if any("\"permissionDecision\": \"ask\"" in sp.run(c,shell=True,input=e,capture_output=True,text=True,env={**os.environ,"TRIPO_GUARD_OFFLINE":"1"}).stdout for c in h) else "LOCK MISSING")'
+   ```
+   `LOCK OK` (the hook answered `"permissionDecision": "ask"`) -> "with the lock". Anything else (`LOCK MISSING`, an error, no `python3`) -> "without the lock" for the whole session, and say so in one Turkish line.
 5. Resume: if the user names an asset with a state file, `asset_state.py get <project> <id>` and continue from its `phase`. Exit 5 with `"migrate": true` -> say the file is from an older schema and ask before migrating; `"migrate": false` -> newer than this skill, stop and say so. Never guess.
 
 ## 2. Phases (spec 9)
@@ -69,8 +73,8 @@ Placeholder **and** a raw generation result the user already has (made outside t
 - Ask only for: credits (the lock window), a scene change, a global lesson, two truly equal options, applying a Blender fix (inside the batched question).
 - Project lessons are written without asking, as soon as they are learned; only a general (global) lesson needs a yes.
 - Never ask again what `profile.json` already answers. Short screen report: a few lines + a table, details in a file. Turkish to the user.
-- **With the lock installed** (`~/.claude/settings.json` contains `tripo_guard`): never ask separately before a paid step. Run the single-step command; the permission window is the approval (K14).
-- **Without the lock**: ask once per paid step, one Turkish line with step, estimate, balance and label, and run only after a yes.
+- **With the lock** (the session-start lock check printed `LOCK OK`): never ask separately before a paid step. Run the single-step command, written as hard rule 3 demands; the permission window is the approval (K14).
+- **Without the lock** (the check failed): ask in chat once before every paid step, one Turkish line with step, estimate, balance and label, and run only after a yes.
 - A denied window or a "no" is final for that step: do not retry it, record it in `decisions`, offer the free alternative.
 - Multi-part objects: ask "tek parça mı, parçalı mı?" once with both prices (K7). Parts come only from Tripo (`generate_parts` or one piece + `segment`/`smartsegment`), never one image per part (K16).
 - Every rig: ask the animation question once (K9). Every placement: diff first (K6). Never write a general lesson without approval (K4).
@@ -102,14 +106,15 @@ Hangileri? (ör. "1A, 2B, 3 geç")
 
 1. Every generation, texture, decimate and rig step passes `--model` explicitly; never `-p model=` (B10). Build steps with `tripo_plan.py`, never by hand.
 2. One paid step per command (B17). The free `rig-check` runs on its own command too. The lock denies a command with two paid steps.
-3. Name every task `--name <asset>-<kind>-vNN` (the step's `label`; bump `vNN` for every new paid attempt). Chain the next step from the printed `ref`.
-4. Run tripo from the asset's raw folder, `<art_source>/<kind>/<id>/raw/<label>/` (create it first); the download lands in its `tripo-out/` (read `output_dir`/`files` from the JSON). Check that `.tripo/` is git-ignored.
-5. No `@last` across sessions; use labels or task ids.
-6. Re-roll cap: 2 regenerations per asset (B11). If the image caused the defect, fix the image first.
-7. Front axis: confirmed in the first QA report line; never apply a side-specific fix before that.
-8. Never `tripo redo`, `tripo ai`, `tripo batch run` or the `tripo mcp` tools: they skip the plan and the lock.
-9. Normals are never recomputed globally (B7). `orientation`, `export_orientation`, `auto_size` are never sent to Tripo; direction, scale and pivot are set locally.
-10. Exit-code policy for tripo (spec 16.2; full table in `tripo-cli.md` section 8):
+3. Run tripo only as a bare `tripo …`, or as the absolute path to the binary. Never through `mise exec`/`mise x`, `npm exec`/`npx`/`pnpm exec`, a script, a loop, a function, `xargs`/`find -exec` or a `$VAR`: the lock cannot price those, and it denies loops and repeaters outright. When `tripo` is not on PATH, fix PATH (`export PATH=<dir of the binary>:$PATH`) or use the absolute path; never a wrapper.
+4. Name every task `--name <asset>-<kind>-vNN` (the step's `label`; bump `vNN` for every new paid attempt). Chain the next step from the printed `ref`.
+5. Run tripo from the asset's raw folder, `<art_source>/<kind>/<id>/raw/<label>/` (create it first); the download lands in its `tripo-out/` (read `output_dir`/`files` from the JSON). Check that `.tripo/` is git-ignored.
+6. No `@last` across sessions; use labels or task ids.
+7. Re-roll cap: 2 regenerations per asset (B11). If the image caused the defect, fix the image first.
+8. Front axis: confirmed in the first QA report line; never apply a side-specific fix before that.
+9. Never `tripo redo`, `tripo ai`, `tripo batch run` or the `tripo mcp` tools: they skip the plan and the lock.
+10. Normals are never recomputed globally (B7). `orientation`, `export_orientation`, `auto_size` are never sent to Tripo; direction, scale and pivot are set locally.
+11. Exit-code policy for tripo (spec 16.2; full table in `tripo-cli.md` section 8):
 
 | exit | action |
 |---|---|

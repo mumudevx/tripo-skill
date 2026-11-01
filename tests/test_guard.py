@@ -208,6 +208,78 @@ class Classification(unittest.TestCase):
         self.assertAsk("if true; then tripo make @a --then uv; fi")
         self.assertAsk("echo @a | xargs -n 1 tripo redo")
 
+    # ---- C1: forms the lock must not miss ----
+
+    def test_unknown_runner_falls_back_to_tripo_word(self):
+        for cmd in ["mise exec -- tripo make x.png --model tripo-v3.1",
+                    "mise x -- tripo make x.png --model tripo-v3.1",
+                    "mise exec node@24 -- tripo make x.png --model tripo-v3.1",
+                    "npm exec tripo-cli -- make x.png --model tripo-v3.1",
+                    "npm exec -- tripo make x.png --model tripo-v3.1",
+                    "pnpm exec tripo make x.png --model tripo-v3.1",
+                    "yarn tripo make x.png --model tripo-v3.1",
+                    "caffeinate -i tripo make x.png --model tripo-v3.1",
+                    "stdbuf -oL tripo make x.png --model tripo-v3.1",
+                    "command -p tripo make x.png --model tripo-v3.1",
+                    "/usr/bin/env tripo make x.png --model tripo-v3.1",
+                    "node ~/.npm/node_modules/tripo-cli/bin/tripo.js make x.png",
+                    "mise exec -- bash -c 'tripo make x.png --model tripo-v3.1'",
+                    "T=$(command -v tripo); $T make x.png --model tripo-v3.1"]:
+            with self.subTest(cmd=cmd):
+                self.assertAsk(cmd)
+        # the same runners with a free command stay silent
+        for cmd in ["mise exec -- tripo balance --json", "npm exec tripo-cli -- --version",
+                    "npm install -g tripo-cli@latest", "mise exec -- tripo make x.png --dry-run"]:
+            with self.subTest(cmd=cmd):
+                self.assertSilent(cmd)
+
+    def test_case_folded(self):
+        self.assertAsk("/x/bin/TRIPO make x.png --model tripo-v3.1")
+        self.assertAsk("Tripo make x.png --model tripo-v3.1")
+        self.assertAsk("npx Tripo-CLI make x.png --model tripo-v3.1")
+        self.assertAsk("mise exec -- TRIPO redo @a")
+        self.assertSilent("TRIPO balance --json")
+
+    def test_variable_program_asks(self):
+        for cmd in ['"$TRIPO" make x.png --model tripo-v3.1', "cd tripo-out && $T make x.png",
+                    "${T:-tripo} make x.png", "cd raw && $TRIPO_BIN redo"]:
+            with self.subTest(cmd=cmd):
+                self.assertIn("görülemeyen çağrı", self.assertAsk(cmd))
+        # a $VAR program in a command that never mentions tripo is not the lock's business
+        self.assertSilent("$EDITOR notes.md")
+
+    def test_read_only_programs_silent(self):
+        for cmd in ["which tripo", "command -v tripo", "type tripo", "man tripo",
+                    "ls -la ~/.local/share/mise/installs/node/24.22.2/bin/tripo",
+                    "head -3 tripo", "sed -n 1p tripo", "rg tripo make", "git log -- tripo",
+                    "python3 -m unittest tests.test_guard"]:
+            with self.subTest(cmd=cmd):
+                self.assertSilent(cmd)
+
+    def test_function_body_asks(self):
+        self.assertAsk("f(){ tripo make x.png --model tripo-v3.1; }; f")
+        self.assertAsk("function g { tripo redo @a; }")
+        self.assertAsk("f() {\n  tripo make x.png --model tripo-v3.1\n}\nf")
+
+    def test_shell_script_file(self):
+        d = tmpdir("tripo-guard-script-")
+        self.addCleanup(shutil.rmtree, d, True)
+        (d / "run.sh").write_text("#!/bin/sh\nTripo make x.png --model tripo-v3.1\n")
+        (d / "plain.sh").write_text("#!/bin/sh\necho hi\n")
+        for cmd in ["bash run.sh", "sh -e run.sh", "zsh ./run.sh", f"bash {d}/run.sh",
+                    "source run.sh", ". ./run.sh", "mise exec -- bash run.sh"]:
+            with self.subTest(cmd=cmd):
+                d_ = decision(cmd, cwd=str(d))
+                self.assertIsNotNone(d_, cmd)
+                self.assertEqual(d_[0], "ask")
+                self.assertIn("run.sh", d_[1])
+        # the file is resolved against the cwd of a preceding cd
+        self.assertEqual(decision(f"cd {d} && bash run.sh")[0], "ask")
+        for cmd in ["bash plain.sh", "bash missing.sh"]:
+            with self.subTest(cmd=cmd):
+                # these mention tripo only through the path: still silent
+                self.assertIsNone(decision(cmd + " # tripo", cwd=str(d)))
+
     def test_option_values_are_not_flags(self):
         # '--name -h' names the task '-h'; it is not a help request
         self.assertAsk("tripo make x.png --model tripo-v3.1 --name -h")

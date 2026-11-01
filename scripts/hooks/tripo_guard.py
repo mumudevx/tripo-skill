@@ -3,7 +3,11 @@
 
 Reads the hook JSON on stdin (`tool_name`, `tool_input.command`, `cwd`) and finds
 every tripo call in a Bash command, also behind `rtk`, `env`, `VAR=…`, `cd … &&`,
-pipes, `bash -c`, `$(…)`, `npx tripo-cli` and a path to the binary.
+pipes, `bash -c`, `$(…)`, `npx tripo-cli` and a path to the binary. Names are
+case-folded (APFS runs `TRIPO`). Fail closed: a program the guard does not know
+(`mise exec`, `npm exec`, `find -exec`, `caffeinate`, ...) is analysed from its first
+tripo word unless it is a read-only tool (READ_ONLY); a `$VAR` program in a command
+that mentions tripo, or a shell script file that mentions tripo, asks.
 
   no tripo call, or only free ones   -> exit 0, no output (other hooks decide)
   exactly one paid step              -> permissionDecision "ask" with step, estimate,
@@ -42,9 +46,16 @@ NO_ESTIMATE = "tahmin yok"
 PUNCT = "();<>|&\n`"
 SEPARATORS = {"&&", "||", ";", ";;", "|", "|&", "&", "\n", "(", ")", "`", "$"}
 REDIRECTS = {">", ">>", "<", "<<", "<<<", ">&", "<&", "&>", "&>>", ">|", "<>"}
+OPERATORS = (SEPARATORS | REDIRECTS) - {"$"}
+OPERATORS_BY_LEN = sorted(OPERATORS, key=len, reverse=True)
 ASSIGN_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=")
 KEYWORDS = {"if", "then", "else", "elif", "do", "while", "until", "!", "{", "time",
-            "command", "exec", "builtin", "nohup", "noglob"}
+            "exec", "builtin", "nohup", "noglob"}
+TRIPO_NAMES = {"tripo", "tripo-cli"}
+# programs that never run their arguments: a tripo word after them is text (C1)
+READ_ONLY = {"grep", "rg", "echo", "printf", "cat", "less", "more", "head", "tail", "git",
+             "gh", "ls", "which", "type", "man", "sed", "awk", "jq", "wc", "sort", "diff"}
+SCRIPT_READ_LIMIT = 1 << 20
 SHELLS = {"bash", "sh", "zsh", "dash", "ksh"}
 SHELL_LONG_VALUE_OPTS = {"--rcfile", "--init-file"}
 NPX = {"npx", "bunx"}
@@ -64,9 +75,19 @@ def _lex(command):
     lex.whitespace_split = True
     lex.commenters = ""  # comments only add false positives, never hide a call
     try:
-        return list(lex)
+        tokens = list(lex)
     except ValueError as e:
         raise ParseError(str(e)) from None
+    out = []
+    for t in tokens:  # shlex glues runs of punctuation (");", ")|"): split into operators
+        if t and t not in OPERATORS and all(c in PUNCT for c in t):
+            while t:
+                op = next((o for o in OPERATORS_BY_LEN if t.startswith(o)), t[0])
+                out.append(op)
+                t = t[len(op):]
+        else:
+            out.append(t)
+    return out
 
 
 HEREDOC_DELIM_RE = re.compile(r"""(-?)[ \t]*(?:'([^'\n]*)'|"([^"\n]*)"|(\\?)([^\s;&|<>()'"`]+))""")
@@ -127,8 +148,17 @@ def _heredocs(command):
     return "".join(out), bodies
 
 
+def _base(word):
+    """Lowercased basename: APFS is case-insensitive, so `TRIPO` runs tripo."""
+    return os.path.basename(word).lower()
+
+
+def _is_tripo_word(word):
+    return _base(word) in TRIPO_NAMES or "tripo-cli" in word.lower()
+
+
 def _feeds_shell(words):
-    return any(os.path.basename(w) in SHELLS for w in words)
+    return any(_base(w) in SHELLS for w in words)
 
 
 def _substitutions(token):
@@ -181,27 +211,35 @@ def _skip_opts(argv, i, value_opts):
 
 def _unwrap(argv):
     """Drop shell keywords, assignments and wrappers. Returns (program argv, nested
-    command strings to scan as well)."""
+    command strings to scan as well, script file run by a shell or None)."""
     i, nested = 0, []
     while i < len(argv):
         t = argv[i]
+        b = _base(t)
         if ASSIGN_RE.match(t) or t in KEYWORDS:
             i += 1
-        elif t == "rtk":
+        elif t == "command":
+            i += 1
+            while i < len(argv) and argv[i] == "-p":
+                i += 1
+            if i < len(argv) and argv[i] in ("-v", "-V"):
+                return [], nested, None  # a lookup, runs nothing
+        elif b == "rtk":
             i += 2 if i + 1 < len(argv) and argv[i + 1] == "proxy" else 1
-        elif t in WRAPPER_VALUE_OPTS:
-            i = _skip_opts(argv, i + 1, WRAPPER_VALUE_OPTS[t])
-            if t == "timeout" and i < len(argv):
+        elif b in WRAPPER_VALUE_OPTS:
+            i = _skip_opts(argv, i + 1, WRAPPER_VALUE_OPTS[b])
+            if b == "timeout" and i < len(argv):
                 i += 1  # the duration
-        elif t in NPX or (t in ("pnpm", "yarn") and argv[i + 1:i + 2] == ["dlx"]):
-            i = _skip_opts(argv, i + (1 if t in NPX else 2), {"-p", "--package"})
-            if i < len(argv) and argv[i].split("@")[0] in ("tripo-cli", "tripo"):
-                return ["tripo", *argv[i + 1:]], nested
-            return [], nested
-        elif os.path.basename(t) in SHELLS:
+        elif b in NPX or (b in ("pnpm", "yarn") and argv[i + 1:i + 2] == ["dlx"]):
+            i = _skip_opts(argv, i + (1 if b in NPX else 2), {"-p", "--package"})
+            if i < len(argv) and argv[i].split("@")[0].lower() in TRIPO_NAMES:
+                return ["tripo", *argv[i + 1:]], nested, None
+            return [], nested, None
+        elif b in SHELLS:
             # Walk all options like the shell does: -o/+o/-O/+O (also inside
             # combined flags such as -euo) take a value, and with -c anywhere
-            # the first non-option argument is the command string.
+            # the first non-option argument is the command string; without -c
+            # it is a script file.
             j, has_c = i + 1, False
             while j < len(argv):
                 a = argv[j]
@@ -216,52 +254,110 @@ def _unwrap(argv):
                     j += 1 + letters.count("o") + letters.count("O")
                 else:
                     break
-            if has_c and j < len(argv):
-                nested.append(argv[j])
-            return [], nested
+            if j < len(argv):
+                if has_c:
+                    nested.append(argv[j])
+                else:
+                    return [], nested, argv[j]
+            return [], nested, None
+        elif t in ("source", ".") and i + 1 < len(argv):
+            return [], nested, argv[i + 1]
         elif t == "eval":
             nested.append(" ".join(argv[i + 1:]))
-            return [], nested
+            return [], nested, None
         else:
             break
-    return argv[i:], nested
+    return argv[i:], nested, None
 
 
-def tripo_calls(command, cwd=None):
-    """[(args after the tripo program, effective cwd)] for every tripo call in `command`."""
+def _script_mentions_tripo(path, cwd):
+    """True when `path` (resolved against cwd) is a readable file that mentions tripo."""
+    full = os.path.join(cwd or os.getcwd(), os.path.expanduser(path))
+    try:
+        with open(full, "rb") as f:
+            return b"tripo" in f.read(SCRIPT_READ_LIMIT).lower()
+    except OSError:
+        return False
+
+
+def _read_only(argv):
+    b = _base(argv[0])
+    return b in READ_ONLY or (b.startswith("python") and argv[1:3] == ["-m", "unittest"])
+
+
+def _call(args, cwd):
+    return {"args": args, "cwd": cwd}
+
+
+def _opaque(why):
+    return {"opaque": why}
+
+
+def tripo_calls(command, cwd=None, _tripo_in=None):
+    """Every tripo call in `command`: [{"args": args after the tripo program, "cwd"}],
+    plus {"opaque": reason} for a program the guard cannot see through (a `$VAR`
+    program or a shell script that mentions tripo): those ask, never stay silent."""
+    if _tripo_in is None:
+        _tripo_in = "tripo" in command.lower()
     command, heredocs = _heredocs(command)
     tokens = _lex(command)
     calls = []
+
+    def sub(text, at=cwd):
+        return tripo_calls(text, at, _tripo_in)
+
     for body, quoted, line in heredocs:
         if _feeds_shell(re.split(r"[\s|;&()]+", line)):
-            calls += tripo_calls(body, cwd)  # the shell runs the body
+            calls += sub(body)  # the shell runs the body
         elif not quoted:
-            for sub in _substitutions(body):  # an unquoted delimiter keeps $(...) live
-                calls += tripo_calls(sub, cwd)
+            for s in _substitutions(body):  # an unquoted delimiter keeps $(...) live
+                calls += sub(s)
     for tok in tokens:
         for body in _substitutions(tok):
-            calls += tripo_calls(body, cwd)
+            calls += sub(body)
     herestrings = []
     segments = _segments(tokens, herestrings)
     for idx, word in herestrings:
         if idx < len(segments) and _feeds_shell(segments[idx]):
-            calls += tripo_calls(word, cwd)
+            calls += sub(word)
     for seg in segments:
-        argv, nested = _unwrap(seg)
-        for body in nested:
-            calls += tripo_calls(body, cwd)
-        if not argv:
-            continue
-        prog = argv[0]
-        if prog == "cd":
-            target = argv[1] if len(argv) > 1 else "~"
-            if target != "-":
-                cwd = os.path.join(cwd or os.getcwd(), os.path.expanduser(target))
-        elif os.path.basename(prog) in ("tripo", "tripo-cli"):
-            calls.append((argv[1:], cwd))
-        elif prog == "node" and len(argv) > 1 and "tripo-cli" in argv[1]:
-            calls.append((argv[2:], cwd))
+        cwd, found = _segment_calls(seg, cwd, _tripo_in, sub)
+        calls += found
     return calls
+
+
+def _segment_calls(seg, cwd, tripo_in, sub):
+    """Calls in one simple command. Returns (cwd after it, calls)."""
+    argv, nested, script = _unwrap(seg)
+    calls = []
+    for body in nested:
+        calls += sub(body, cwd)
+    if script is not None and _script_mentions_tripo(script, cwd):
+        calls.append(_opaque(f"betik tripo içeriyor ({script})"))
+    if not argv:
+        return cwd, calls
+    prog = argv[0]
+    if prog == "cd":
+        target = argv[1] if len(argv) > 1 else "~"
+        if target != "-":
+            cwd = os.path.join(cwd or os.getcwd(), os.path.expanduser(target))
+    elif _is_tripo_word(prog):
+        calls.append(_call(argv[1:], cwd))
+    elif prog.startswith("$") and len(prog) > 1:
+        if tripo_in:
+            calls.append(_opaque(f"program bir değişken ({prog}), tripo olabilir"))
+    elif not _read_only(argv):
+        # Fail closed: an unknown runner (mise exec, npm exec, find -exec, caffeinate,
+        # watch, ...) is analysed from its first tripo word, or its first shell.
+        for k in range(1, len(argv)):
+            if _is_tripo_word(argv[k]):
+                args = argv[k + 1:]
+                calls.append(_call(args[1:] if args[:1] == ["--"] else args, cwd))
+                break
+            if _base(argv[k]) in SHELLS or argv[k] == "eval":
+                calls += _segment_calls(argv[k:], cwd, tripo_in, sub)[1]
+                break
+    return cwd, calls
 
 
 # ---------- tripo argv ----------
@@ -614,24 +710,42 @@ def decide(command, cwd=None):
     try:
         calls = tripo_calls(command, cwd)
     except ParseError:
-        if "tripo" in command:
+        if "tripo" in command.lower():
             return "ask", "Tripo kredi kilidi: komut ayrıştırılamadı, ücretli olabilir"
         return None
-    found = []
-    for args, call_cwd in calls:
-        info = analyze(args)
-        found += [(step, info, call_cwd) for step in info["steps"]]
-    if not found:
+    found, opaque = [], []
+    for call in calls:
+        if "opaque" in call:
+            opaque.append(call["opaque"])
+            continue
+        info = analyze(call["args"])
+        found += [(step, info, call["cwd"]) for step in info["steps"]]
+    if not found and not opaque:
         return None
     if len(found) > 1:
         names = ", ".join(step["what"] for step, _, _ in found)
         return "deny", f"{B17}: bu komutta {len(found)} ücretli adım var ({names})"
+    unseen = f"görülemeyen çağrı: {'; '.join(opaque)} (ücretli olabilir)" if opaque else None
+    if not found:
+        return "ask", " | ".join(["Tripo kredi kilidi", unseen,
+                                  "tripo'yu düz `tripo …` ya da mutlak yolla çalıştır"])
     step, info, call_cwd = found[0]
     dry = make_dry_run(info["globals"], info["make"], call_cwd) \
         if info["make"] is not None else None
     parts = ["Tripo kredi kilidi", f"adım: {step['what']}", estimate_text(step, info, dry),
              balance_text(info["globals"]), f"label: {info['label'] or 'yok'}"]
+    if unseen:
+        parts.append(unseen)
     return "ask", " | ".join(parts)
+
+
+SHELL_HINT_RE = re.compile(r"(?:^|[\s;&|(`/])(?:bash|sh|zsh|dash|ksh|source|\.)\s", re.I)
+
+
+def _worth_parsing(command):
+    """Fast path: only a command that mentions tripo, or runs a shell (whose script
+    file may call tripo), is parsed."""
+    return "tripo" in command.lower() or bool(SHELL_HINT_RE.search(command))
 
 
 def main():
@@ -642,7 +756,7 @@ def main():
     if not isinstance(event, dict) or event.get("tool_name") != "Bash":
         return 0
     command = (event.get("tool_input") or {}).get("command")
-    if not isinstance(command, str) or "tripo" not in command:
+    if not isinstance(command, str) or not _worth_parsing(command):
         return 0
     try:
         result = decide(command, event.get("cwd"))
