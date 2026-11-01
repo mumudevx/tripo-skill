@@ -808,16 +808,23 @@ def make_dry_run(glob, rest, cwd):
 
 FREE_DRY_STEPS = {"rig-check"}
 FREE_TASK_TYPES = {"animate_prerigcheck"}
+IMPORT_STEPS = {"import", "import_model"}
 
 
 def dry_paid_steps(dry):
     """Names of the paid tasks a make dry-run plans: every step but rig-check, and one
     per extra candidate. tripo-cli updates itself, so a new default chain step shows up
-    here before the guard's own parse knows it."""
+    here before the guard's own parse knows it. The leading import of a local file is
+    not counted: it is part of the one step the window shows (R1), and its price is in
+    the dry-run estimate."""
     if not isinstance(dry, dict):
         return []
-    names = [str(st.get("name")) for st in dry.get("steps") or []
-             if isinstance(st, dict) and st.get("name") not in FREE_DRY_STEPS
+    steps = [st for st in dry.get("steps") or [] if isinstance(st, dict)]
+    if steps and (steps[0].get("name") in IMPORT_STEPS
+                  or steps[0].get("task_type") in IMPORT_STEPS):
+        steps = steps[1:]
+    names = [str(st.get("name")) for st in steps
+             if st.get("name") not in FREE_DRY_STEPS
              and st.get("task_type") not in FREE_TASK_TYPES]
     cand = dry.get("candidates")
     if isinstance(cand, int) and not isinstance(cand, bool) and cand > 1 and names:

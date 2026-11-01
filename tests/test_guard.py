@@ -487,6 +487,48 @@ class Reason(unittest.TestCase):
                           "steps": [{"name": "texture", "task_type": "texture_model"}]})
         self.ask("tripo make @a --then texture", TRIPO_GUARD_DRYRUN=dry)
 
+    @staticmethod
+    def file_dry(*steps, estimate=None):
+        """A 0.9.0-shaped dry-run for a local file: import first, then the chain."""
+        return json.dumps({"dry_run": True, "valid": True, "errors": [], "candidates": 1,
+                           "generation_credits_estimate": estimate,
+                           "steps": [{"name": "import", "task_type": "import_model"},
+                                     *({"name": n, "task_type": t} for n, t in steps)]})
+
+    def test_file_import_is_not_a_second_paid_step(self):
+        # R1: the CLI's leading import of a local file is part of the one step
+        for cmd, steps in [
+                ('tripo make model.glb --then "rig:model=v3.0;spec=mixamo;rig_type=biped"',
+                 [("rig", "animate_rig")]),
+                ("tripo make model.glb --then decimate:face_limit=3000",
+                 [("decimate", "highpoly_to_lowpoly")]),
+                ("tripo make model.glb --then texture", [("texture", "texture_model")])]:
+            with self.subTest(cmd=cmd):
+                r = self.ask(cmd, TRIPO_GUARD_DRYRUN=self.file_dry(*steps, estimate=35))
+                self.assertIn("tahmini kredi: 35 (dry-run)", r)  # the full dry-run price
+        # two real paid steps after the import are still two (the real 0.9.0 plan for
+        # `--then rig,animate:preset:walk`), whether our parse or the dry-run sees them
+        rig_anim = self.file_dry(("rig", "animate_rig"), ("retarget", "animate_retarget"))
+        for cmd in ["tripo make model.glb --then rig,animate:preset:walk",
+                    "tripo make model.glb --then rig"]:  # a newer CLI adding a step
+            with self.subTest(cmd=cmd):
+                d = decision(cmd, env_extra={"TRIPO_GUARD_DRYRUN": rig_anim})
+                self.assertEqual(d[0], "deny", d)
+                self.assertIn(B17, d[1])
+                self.assertIn("rig", d[1])
+                self.assertIn("retarget", d[1])
+        # a dry-run that names import by task type only is the same import
+        dry = json.dumps({"dry_run": True, "valid": True, "errors": [], "candidates": 1,
+                          "steps": [{"name": "upload", "task_type": "import_model"},
+                                    {"name": "uv", "task_type": "uv_unwrap"}]})
+        self.ask("tripo make model.glb --then uv", TRIPO_GUARD_DRYRUN=dry)
+        # an import that is not the leading step is counted
+        dry = json.dumps({"dry_run": True, "valid": True, "errors": [], "candidates": 1,
+                          "steps": [{"name": "texture", "task_type": "texture_model"},
+                                    {"name": "import", "task_type": "import_model"}]})
+        d = decision("tripo make @a --then texture", env_extra={"TRIPO_GUARD_DRYRUN": dry})
+        self.assertEqual(d[0], "deny", d)
+
     def test_deny_names_the_steps(self):
         d = decision("tripo make @a --then texture,rig")
         self.assertEqual(d[0], "deny")
