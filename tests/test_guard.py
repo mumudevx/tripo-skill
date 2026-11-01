@@ -324,6 +324,36 @@ class Classification(unittest.TestCase):
         self.assertAsk("for i in 1 2; do echo $i; done; tripo make x.png --model tripo-v3.1")
         self.assertAsk("for x in tripo; do echo $x; done; tripo redo @a")
 
+    def test_loop_after_a_shell_keyword_denied(self):
+        # R2: a loop keyword after then/else/elif/do/time/! in the same segment
+        for cmd in ["if [ -f x.png ]; then for i in 1 2 3; do tripo make x.png "
+                    "--model tripo-v3.1; done; fi",
+                    "if false; then :; else while true; do tripo make x.png; done; fi",
+                    "if false; then :; elif true; then until false; do tripo redo @a; done; fi",
+                    "for i in 1 2; do while true; do tripo redo @a; done; done",
+                    "time while true; do tripo redo @a; done",
+                    "! until false; do tripo redo @a; done",
+                    # zsh `repeat N`: short form, do/done form, brace form
+                    "repeat 3 tripo make x.png --model tripo-v3.1",
+                    "repeat 3 do tripo make x.png --model tripo-v3.1; done",
+                    "repeat 3\ndo\n  tripo redo @a\ndone",
+                    "repeat 3 { tripo redo @a; }",
+                    "repeat 3 {\n  tripo redo @a\n}",
+                    "if true; then repeat 2 tripo redo @a; fi",
+                    "f(){ tripo redo @a; }; repeat 2 f"]:
+            with self.subTest(cmd=cmd):
+                self.assertIn("birden çok ücretli görevi", self.assertDeny(cmd))
+        # the loop ends where it ends: a paid call after it is one window
+        for cmd in ["if true; then for i in 1 2; do echo $i; done; fi; tripo redo @a",
+                    "repeat 2 echo hi; tripo redo @a",
+                    "repeat 2 do echo hi; done; tripo redo @a",
+                    "repeat 2 { echo hi; }; tripo redo @a",
+                    "if true; then tripo redo @a; fi",
+                    "time tripo redo @a"]:
+            with self.subTest(cmd=cmd):
+                self.assertAsk(cmd)
+        self.assertSilent("repeat 3 tripo balance --json")
+
     def test_repeaters_denied(self):
         for cmd in ["seq 3 | xargs -I{} tripo make x.png --model tripo-v3.1",
                     "echo @a | xargs -n 1 tripo redo",

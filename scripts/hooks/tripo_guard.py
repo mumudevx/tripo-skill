@@ -13,7 +13,8 @@ that mentions tripo, or a shell script file that mentions tripo, asks.
   exactly one paid step              -> permissionDecision "ask" with step, estimate,
                                         balance and label in Turkish
   more than one paid step            -> permissionDecision "deny" (B17)
-  a paid step that runs many times   -> "deny" (B17): a loop body, xargs, parallel,
+  a paid step that runs many times   -> "deny" (B17): a loop body (also zsh
+                                        `repeat N`), xargs, parallel,
                                         find -exec, watch, a function called twice,
                                         `batch run`, `ai <request>`
 
@@ -75,6 +76,9 @@ READ_ONLY = {"grep", "rg", "echo", "printf", "cat", "less", "more", "head", "tai
 SCRIPT_READ_LIMIT = 1 << 20
 # a paid call behind these may run many times: one approval would cover N tasks (I1)
 LOOP_WORDS = {"while", "until", "for", "select"}
+# shell words that may stand before a loop keyword in the same segment (R2)
+LEAD_WORDS = {"if", "then", "else", "elif", "do", "time", "!"}
+REPEAT_BRACE = object()  # braces entry of a zsh `repeat N { ... }` body
 REPEATERS = {"xargs", "parallel", "find", "fd", "watch"}
 SHELLS = {"bash", "sh", "zsh", "dash", "ksh"}
 SHELL_LONG_VALUE_OPTS = {"--rcfile", "--init-file"}
@@ -377,14 +381,27 @@ def tripo_calls(command, cwd=None, _tripo_in=None, _repeat=None):
         words, seg, header = seg + extra.get(index, []), list(seg), False
         if pending_func and seg[:1] != ["{"]:
             pending_func = None
+        seg_repeat = False  # zsh `repeat N cmd`: this segment runs N times
         while seg:  # control words: track loops and function bodies
             w = seg[0]
-            if w in LOOP_WORDS:
+            if w in LEAD_WORDS:
+                seg.pop(0)  # `then for ...`, `do while ...`: look past it (R2)
+            elif w in LOOP_WORDS:
                 loop += 1
                 if w in ("for", "select"):
                     header = True  # `for x in words`: the words are not a command
                     break
                 seg.pop(0)
+            elif w == "repeat":  # zsh (the Bash tool runs zsh here)
+                seg = seg[2:]
+                if seg[:1] == ["{"]:
+                    loop += 1
+                    braces.append(REPEAT_BRACE)
+                    pending_func, seg = None, seg[1:]
+                elif seg and seg[0] != "do":
+                    seg_repeat = True  # short form
+                else:
+                    loop += 1  # `repeat N do ... done`, also with `do` on a later segment
             elif w == "done":
                 loop = max(0, loop - 1)
                 seg.pop(0)
@@ -393,8 +410,8 @@ def tripo_calls(command, cwd=None, _tripo_in=None, _repeat=None):
                 pending_func = None
                 seg.pop(0)
             elif w == "}":
-                if braces:
-                    braces.pop()
+                if braces and braces.pop() is REPEAT_BRACE:
+                    loop = max(0, loop - 1)
                 seg.pop(0)
             elif w == "function" and len(seg) > 1:
                 pending_func, seg = seg[1], seg[2:]
@@ -404,8 +421,8 @@ def tripo_calls(command, cwd=None, _tripo_in=None, _repeat=None):
                 pending_func, seg = seg[0], seg[2:]
             else:
                 break
-        repeat = _repeat or ("döngü içinde" if loop else None)
-        func = next((f for f in reversed(braces) if f), None)
+        repeat = _repeat or ("döngü içinde" if loop or seg_repeat else None)
+        func = next((f for f in reversed(braces) if isinstance(f, str)), None)
         found = []
         for n in (int(m) for w in words for m in SUB_RE.findall(w)):
             if n < len(subs) and n not in seen_subs:  # $(...) runs where its word is
