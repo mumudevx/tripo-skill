@@ -792,6 +792,25 @@ def make_dry_run(glob, rest, cwd):
     return data if isinstance(data, dict) and data.get("dry_run") is True else None
 
 
+FREE_DRY_STEPS = {"rig-check"}
+FREE_TASK_TYPES = {"animate_prerigcheck"}
+
+
+def dry_paid_steps(dry):
+    """Names of the paid tasks a make dry-run plans: every step but rig-check, and one
+    per extra candidate. tripo-cli updates itself, so a new default chain step shows up
+    here before the guard's own parse knows it."""
+    if not isinstance(dry, dict):
+        return []
+    names = [str(st.get("name")) for st in dry.get("steps") or []
+             if isinstance(st, dict) and st.get("name") not in FREE_DRY_STEPS
+             and st.get("task_type") not in FREE_TASK_TYPES]
+    cand = dry.get("candidates")
+    if isinstance(cand, int) and not isinstance(cand, bool) and cand > 1 and names:
+        names += [f"{names[0]} (aday {k})" for k in range(2, cand + 1)]
+    return names
+
+
 def estimate_text(step, info, dry):
     est = (dry or {}).get("generation_credits_estimate")
     if isinstance(est, (int, float)) and not isinstance(est, bool):
@@ -855,6 +874,10 @@ def decide(command, cwd=None):
     step, info, call_cwd = found[0]
     dry = make_dry_run(info["globals"], info["make"], call_cwd) \
         if info["make"] is not None else None
+    planned = dry_paid_steps(dry)
+    if len(planned) > 1:  # the CLI's own plan wins over our parse (M2, K13)
+        return "deny", (f"{B17}: dry-run bu komutta {len(planned)} ücretli adım planlıyor "
+                        f"({', '.join(planned)})")
     parts = ["Tripo kredi kilidi", f"adım: {step['what']}", estimate_text(step, info, dry),
              balance_text(info["globals"]), f"label: {info['label'] or 'yok'}"]
     if unseen:

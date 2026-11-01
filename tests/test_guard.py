@@ -447,6 +447,31 @@ class Reason(unittest.TestCase):
         r = self.ask("tripo make x.png --model zz", TRIPO_GUARD_DRYRUN=dry)
         self.assertIn("unknown model zz", r)
 
+    def test_dry_run_with_more_paid_steps_denied(self):
+        # M2: a newer CLI that adds a default chain step is caught by its own dry-run
+        dry = json.dumps({"dry_run": True, "valid": True, "errors": [], "candidates": 1,
+                          "generation_credits_estimate": 30,
+                          "steps": [{"name": "image-to-model", "task_type": "image_to_model"},
+                                    {"name": "convert", "task_type": "convert_model"}]})
+        d = decision("tripo make x.png --model tripo-v3.1", env_extra={"TRIPO_GUARD_DRYRUN": dry})
+        self.assertEqual(d[0], "deny", d)
+        self.assertIn(B17, d[1])
+        self.assertIn("convert", d[1])
+        # extra candidates are extra paid generations
+        dry = json.dumps({"dry_run": True, "valid": True, "errors": [], "candidates": 2,
+                          "steps": [{"name": "image-to-model", "task_type": "image_to_model"}]})
+        d = decision("tripo make x.png --model tripo-v3.1", env_extra={"TRIPO_GUARD_DRYRUN": dry})
+        self.assertEqual(d[0], "deny", d)
+        # import + the free rig-check is one paid step
+        dry = json.dumps({"dry_run": True, "valid": True, "errors": [], "candidates": 1,
+                          "steps": [{"name": "import", "task_type": "import_model"},
+                                    {"name": "rig-check", "task_type": "animate_prerigcheck"}]})
+        self.assertEqual(self.ask("tripo make m.glb --then rig-check",
+                                  TRIPO_GUARD_DRYRUN=dry)[:18], "Tripo kredi kilidi")
+        dry = json.dumps({"dry_run": True, "valid": True, "errors": [], "candidates": 1,
+                          "steps": [{"name": "texture", "task_type": "texture_model"}]})
+        self.ask("tripo make @a --then texture", TRIPO_GUARD_DRYRUN=dry)
+
     def test_deny_names_the_steps(self):
         d = decision("tripo make @a --then texture,rig")
         self.assertEqual(d[0], "deny")
