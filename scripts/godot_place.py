@@ -3,7 +3,7 @@
 
   godot_place.py aabb <project> <scene> <node> [--godot BIN]
   godot_place.py plan <project> <asset.json> <model.glb> [--copy-to REL] [--godot BIN]
-  godot_place.py apply <project> <asset.json> <model.glb> [--copy-to REL] [--expect SHA] [--godot BIN]
+  godot_place.py apply <project> <asset.json> <model.glb> --expect SHA [--copy-to REL] [--godot BIN]
   godot_place.py rig_accept <project> <model.glb> [--godot BIN]
 
 aabb     {"size", "center", "bottom_center", "yaw_deg", "normalize_target_size", ...} of a node,
@@ -11,15 +11,18 @@ aabb     {"size", "center", "bottom_center", "yaw_deg", "normalize_target_size",
          Y up); `normalize_target_size` is the same size in normalize.py's Blender order
          (gx, gz, gy): pass that one to `normalize.py --target-size`, never `size`.
 plan     what apply would do, without writing anything: `copy_to` (from profile naming, or
-         --copy-to), `import_params`, `scene_diff` (unified diff of the scene), `before_after`
-         (size / position / yaw of placeholder vs model), `warnings`, `plan_sha256`. Warnings: a size
+         --copy-to), `copy_to_exists` and `copy_to_sha256` (a file already at copy_to, which apply
+         overwrites), `import_params`, `scene_diff` (unified diff of the scene), `before_after`
+         (size / position / yaw of placeholder vs model), `warnings`, `plan_sha256` (covers
+         copy_to_exists and copy_to_sha256 too). Warnings: a different file at copy_to, a size
          mismatch (with the normalize.py --target-size X,Y,Z hint, or, when the model already fills
          the placeholder on its fitting axis, the two aspect ratios instead) and every kept
          CollisionShape3D that no longer fits the model (> 25% larger or smaller on an axis; never
          changed automatically). In generator_script mode
          (spec B19) there is no scene diff: `generator_hint` names the generator file and the
          lines that place this asset; the agent edits it and shows that diff.
-apply    recomputes the plan, refuses when --expect does not match its plan_sha256, then copies
+apply    recomputes the plan, refuses when --expect (required: the plan_sha256 of the plan the
+         user approved) does not match its plan_sha256, then copies
          the model, writes the .import params, writes the scene (scene_swap) and runs
          `godot --headless --import`, the generator (generator_script) and every profile
          check_commands entry from the project root. Any failure exits 5 with the output tail.
@@ -570,8 +573,17 @@ def build_plan(a, root, profile, asset, glb) -> dict:
                          f"{asset['id']} --set 'placeholder={{\"scene\": \"res://...\", \"node\": \"...\"}}'`")
     binary = godot_binary(root, a.godot, profile)
     bounds = glb_bounds(glb)
+    glb_sha = hashlib.sha256(glb.read_bytes()).hexdigest()
+    dest = root / copy_to
+    dest_sha = hashlib.sha256(dest.read_bytes()).hexdigest() if dest.is_file() else None
+    if dest.exists() and not dest.is_file():
+        raise PlaceError(common.EXIT_CHECK, f"{copy_to} exists and is not a file; pass another --copy-to")
+    if dest_sha is not None and dest_sha != glb_sha:
+        warnings.append(f"{copy_to} already exists and is a different file (sha256 {dest_sha[:12]}): var olan "
+                        f"dosyanın üzerine yazılacak; apply replaces it and nothing rolls back. Pass --copy-to "
+                        f"to keep it")
     plan = {"ok": True, "mode": mode, "asset": asset["id"], "glb": str(glb),
-            "glb_sha256": hashlib.sha256(glb.read_bytes()).hexdigest(),
+            "glb_sha256": glb_sha, "copy_to_exists": dest_sha is not None, "copy_to_sha256": dest_sha,
             "copy_to": copy_to, "copy_to_res": copy_res, "import_file": copy_to + ".import",
             "import_params": dict(IMPORT_PARAMS), "scene": None, "node": None, "scene_diff": None,
             "placeholder": None, "model": bounds, "before_after": None}
@@ -607,8 +619,8 @@ def build_plan(a, root, profile, asset, glb) -> dict:
             warnings.append("no scripts/dev/generate_*_models.gd mentions this scene or asset; "
                             "find the generator by hand")
     plan["warnings"] = warnings
-    digest = {k: plan.get(k) for k in ("mode", "copy_to", "glb_sha256", "import_params", "scene", "node",
-                                       "scene_diff", "model_transform")}
+    digest = {k: plan.get(k) for k in ("mode", "copy_to", "copy_to_exists", "copy_to_sha256", "glb_sha256",
+                                       "import_params", "scene", "node", "scene_diff", "model_transform")}
     plan["plan_sha256"] = hashlib.sha256(json.dumps(digest, sort_keys=True).encode()).hexdigest()
     return plan
 
@@ -678,7 +690,7 @@ def godot_errors(out: str) -> list:
 
 def apply(a, root, profile, asset, glb) -> int:
     plan = build_plan(a, root, profile, asset, glb)
-    if a.expect and a.expect != plan["plan_sha256"]:
+    if a.expect != plan["plan_sha256"]:
         common.fail(common.EXIT_CHECK, "the plan changed since it was shown (scene, model or profile differ); "
                                        "run plan again and show the new diff", plan=public(plan))
     written = []
@@ -767,7 +779,7 @@ def main(argv) -> int:
         s.add_argument("glb")
         s.add_argument("--copy-to")
         if name == "apply":
-            s.add_argument("--expect", help="plan_sha256 of the plan the user approved")
+            s.add_argument("--expect", required=True, help="plan_sha256 of the plan the user approved")
     s = sub.add_parser("rig_accept")
     s.add_argument("project")
     s.add_argument("glb")

@@ -107,6 +107,12 @@ class GodotPlace(unittest.TestCase):
         self.assertEqual(code, 0, out)
         return Path(out["path"])
 
+    def apply(self, asset, glb, *extra):
+        """plan, then apply with that plan's plan_sha256 (apply requires --expect)."""
+        code, plan = run(PLACE, "plan", self.proj, asset, glb, *extra, env=self.env)
+        self.assertEqual(code, 0, plan)
+        return run(PLACE, "apply", self.proj, asset, glb, *extra, "--expect", plan["plan_sha256"], env=self.env)
+
     def glb(self, size=(1, 0.5, 0.8)):
         return box_glb(self.tmp / "crate_v01.glb", size)
 
@@ -303,7 +309,7 @@ class GodotPlace(unittest.TestCase):
         asset = self.make_asset(asset_id="stool", scene="res://stool.tscn", node=".")
         glb = box_glb(self.tmp / "stool.glb", (0.6, 0.5, 0.6))
         old = nodes_of((self.proj / "stool.tscn").read_text())
-        code, out = run(PLACE, "apply", self.proj, asset, glb, env=self.env)
+        code, out = self.apply(asset, glb)
         self.assertEqual(code, 0, out)
         new = nodes_of((self.proj / "stool.tscn").read_text())
         old_ids = {a["unique_id"] for a in old.values()}
@@ -320,14 +326,14 @@ class GodotPlace(unittest.TestCase):
         self.make_profile()
         asset = self.make_asset()
         glb = self.glb()
-        code, out = run(PLACE, "apply", self.proj, asset, glb, env=self.env)
+        code, out = self.apply(asset, glb)
         self.assertEqual(code, 0, out)
         text = (self.proj / "main.tscn").read_text()
         code, out = run(PLACE, "plan", self.proj, asset, glb, env=self.env)
         self.assertEqual(code, 0, out)
         self.assertEqual(out["scene_diff"], "")
         self.assertTrue(any("already" in w for w in out["warnings"]), out["warnings"])
-        code, out = run(PLACE, "apply", self.proj, asset, glb, env=self.env)
+        code, out = self.apply(asset, glb)
         self.assertEqual(code, 0, out)
         self.assertEqual((self.proj / "main.tscn").read_text(), text)
 
@@ -338,6 +344,44 @@ class GodotPlace(unittest.TestCase):
         code, out = run(PLACE, "apply", self.proj, asset, self.glb(), "--expect", "0" * 64, env=self.env)
         self.assertEqual(code, 5, out)
         self.assertEqual(tree_hash(self.proj), before)
+
+    def test_apply_requires_expect(self):
+        # I7: a bare apply would write whatever the plan is now, unseen
+        self.make_profile()
+        asset = self.make_asset()
+        before = tree_hash(self.proj)
+        code, out = run(PLACE, "apply", self.proj, asset, self.glb(), env=self.env)
+        self.assertEqual(code, 2, out)
+        self.assertIn("--expect", out["error"])
+        self.assertEqual(tree_hash(self.proj), before)
+
+    def test_plan_reports_existing_copy_to(self):
+        # I7: a hand-made file at copy_to is named in the plan and covered by the digest
+        self.make_profile()
+        asset = self.make_asset()
+        glb = self.glb()
+        code, clean = run(PLACE, "plan", self.proj, asset, glb, env=self.env)
+        self.assertEqual(code, 0, clean)
+        self.assertEqual((clean["copy_to_exists"], clean["copy_to_sha256"]), (False, None))
+        self.assertFalse(any("üzerine yazılacak" in w for w in clean["warnings"]))
+        (self.proj / "models").mkdir()
+        hand = self.proj / "models" / "crate.glb"
+        hand.write_bytes(b"hand-made chair")
+        code, plan = run(PLACE, "plan", self.proj, asset, glb, env=self.env)
+        self.assertEqual(code, 0, plan)
+        self.assertTrue(plan["copy_to_exists"])
+        self.assertEqual(plan["copy_to_sha256"], hashlib.sha256(b"hand-made chair").hexdigest())
+        self.assertTrue(any("var olan dosyanın üzerine yazılacak" in w for w in plan["warnings"]), plan["warnings"])
+        self.assertNotEqual(plan["plan_sha256"], clean["plan_sha256"])
+        # the plan shown before the file appeared no longer applies
+        code, out = run(PLACE, "apply", self.proj, asset, glb, "--expect", clean["plan_sha256"], env=self.env)
+        self.assertEqual(code, 5, out)
+        self.assertEqual(hand.read_bytes(), b"hand-made chair")
+        # the file changes after the plan was shown: refused too
+        hand.write_bytes(b"hand-made chair v2")
+        code, out = run(PLACE, "apply", self.proj, asset, glb, "--expect", plan["plan_sha256"], env=self.env)
+        self.assertEqual(code, 5, out)
+        self.assertEqual(hand.read_bytes(), b"hand-made chair v2")
 
     def test_import_params(self):
         self.make_profile()
@@ -354,7 +398,7 @@ class GodotPlace(unittest.TestCase):
         (self.proj / "models" / "crate.glb.import").write_text(
             '[remap]\n\nimporter="scene"\nimporter_version=1\n\n[params]\n\n'
             'meshes/generate_lods=false\nanimation/fps=24\n')
-        code, out = run(PLACE, "apply", self.proj, asset, glb, env=self.env)
+        code, out = self.apply(asset, glb)
         self.assertEqual(code, 0, out)
         text = (self.proj / "models" / "crate.glb.import").read_text()
         params = dict(re.findall(r"^([\w/]+)=(.*)$", text.split("[params]", 1)[1], re.M))
@@ -374,7 +418,7 @@ class GodotPlace(unittest.TestCase):
     def test_check_failure_exit5(self):
         self.make_profile(check_commands=["echo check-ran; false"])
         asset = self.make_asset()
-        code, out = run(PLACE, "apply", self.proj, asset, self.glb(), env=self.env)
+        code, out = self.apply(asset, self.glb())
         self.assertEqual(code, 5, out)
         self.assertFalse(out["ok"])
         self.assertIn("check-ran", out["tail"])
@@ -383,7 +427,7 @@ class GodotPlace(unittest.TestCase):
     def test_check_plain_false_exit5(self):
         self.make_profile(check_commands=["false"])
         asset = self.make_asset()
-        code, out = run(PLACE, "apply", self.proj, asset, self.glb(), env=self.env)
+        code, out = self.apply(asset, self.glb())
         self.assertEqual(code, 5, out)
 
     def test_generator_mode_hint(self):
@@ -404,7 +448,7 @@ class GodotPlace(unittest.TestCase):
         self.assertTrue(any("SCENE_PATH" in t for t in texts), texts)
         self.assertTrue(any('"crate"' in t for t in texts), texts)
         main_before = (self.proj / "main.tscn").read_text()
-        code, out = run(PLACE, "apply", self.proj, asset, glb, env=self.env)
+        code, out = self.apply(asset, glb)
         self.assertEqual(code, 0, out)
         self.assertEqual([s["step"] for s in out["steps"]], ["import", "generator"])
         self.assertEqual((self.proj / "main.tscn").read_text(), main_before)
