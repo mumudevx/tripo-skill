@@ -268,11 +268,19 @@ class References(unittest.TestCase):
         fixkit = set(re.findall(r"[a-z_]+", registry))
         export_src = (SCRIPTS / "blender" / "export.py").read_text(encoding="utf-8")
         exported = {"max_texture"} if '"--max-texture"' in export_src else set()
-        ladder = {"engine_side", "tripo_retexture", "tripo_decimate", "tripo_rig", "tripo_regenerate"}
+        ladder = {"engine_side", "tripo_retexture", "tripo_uv", "tripo_decimate", "tripo_rig", "tripo_regenerate"}
+        # every tripo_ rung is a step tripo_plan can build
+        rung_kind = {"tripo_retexture": "texture", "tripo_regenerate": "generate"}
+        plan_src = (SCRIPTS / "tripo_plan.py").read_text(encoding="utf-8")
+        kinds = set(re.findall(r'"([a-z_]+)"', re.search(r"KINDS = \((.*?)\)", plan_src, re.S).group(1)))
+        for rung in sorted(r for r in ladder if r.startswith("tripo_")):
+            self.assertIn(rung_kind.get(rung, rung[len("tripo_"):]), kinds, rung)
         unknown = {c: [o for o in opts if o not in fixkit | exported | ladder]
                    for c, opts in fix_options.items()}
         self.assertEqual({c: o for c, o in unknown.items() if o}, {})
         self.assertEqual(fix_options["TEXTURE_OVERSIZE"], ["max_texture"])
+        # M7: the recommended paid rung for UV overlap is the Smart UV step, as fix-tradeoffs.md says
+        self.assertEqual(fix_options["UV_OVERLAP"][0], "tripo_uv")
 
     def test_every_preflight_code_documented(self):
         doc = re.search(r"Codes made here:(.*?)FAKE_FORMAT", PREFLIGHT_PY.read_text(), re.S)

@@ -22,7 +22,7 @@ face +X). Findings carry `fix_options`: fixkit op names (weld_boundary,
 remove_loose, remove_ground_slab, delete_region, fill_holes, mirror_half,
 flatten_region, clone_part, hard_edges, separate_parts, recolour, normalize), the
 export option max_texture (export.py / normalize.py --max-texture) and the other rungs
-of the fix ladder (engine_side, tripo_retexture, tripo_decimate, tripo_rig,
+of the fix ladder (engine_side, tripo_retexture, tripo_uv, tripo_decimate, tripo_rig,
 tripo_regenerate).
 
 back_relief does not depend on the sign of the front axis, only on X or Y, so it is
@@ -82,7 +82,7 @@ FIX_OPTIONS = {
     "NOT_GROUNDED": ["normalize", "delete_region"],
     "ASYMMETRY": ["mirror_half", "clone_part"],
     "BACK_COPY": ["flatten_region", "delete_region", "fill_holes", "tripo_retexture"],
-    "UV_OVERLAP": ["tripo_retexture"],
+    "UV_OVERLAP": ["tripo_uv", "tripo_decimate", "tripo_retexture"],  # tripo_uv: Smart UV, recommended
     "LOW_TEXEL": ["tripo_retexture"],
     "PALETTE_DRIFT": ["recolour", "tripo_retexture"],
     "BAKED_LIGHT": ["tripo_retexture", "recolour"],
