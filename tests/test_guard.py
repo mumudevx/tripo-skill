@@ -427,6 +427,51 @@ class Reason(unittest.TestCase):
         self.assertIn("rig", d[1])
 
 
+class StartupFailure(unittest.TestCase):
+    """I2: a guard that cannot import tripo_plan must ask, not exit 1 (fail open)."""
+
+    def setUp(self):
+        self.dir = tmpdir("tripo-guard-broken-")
+        self.addCleanup(shutil.rmtree, self.dir, True)
+        (self.dir / "scripts" / "hooks").mkdir(parents=True)
+        self.hook = self.dir / "scripts" / "hooks" / "tripo_guard.py"
+        shutil.copy(HOOK, self.hook)
+
+    def run_copy(self, command):
+        env = {k: v for k, v in os.environ.items()
+               if not k.startswith("TRIPO_GUARD_") and k != "PYTHONPATH"}
+        env["TRIPO_GUARD_OFFLINE"] = "1"
+        payload = {"tool_name": "Bash", "tool_input": {"command": command}}
+        return subprocess.run([sys.executable, str(self.hook)], input=json.dumps(payload),
+                              capture_output=True, text=True, env=env, timeout=60)
+
+    def check(self):
+        p = self.run_copy("tripo make x.png --model tripo-v3.1")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        lines = p.stdout.strip().splitlines()
+        self.assertEqual(len(lines), 1, p.stdout)
+        out = json.loads(lines[0])["hookSpecificOutput"]
+        self.assertEqual(out["permissionDecision"], "ask")
+        self.assertIn("Tripo kredi kilidi başlatılamadı", out["permissionDecisionReason"])
+        # case-insensitive, and silent for commands that never mention tripo
+        p = self.run_copy("TRIPO redo @a")
+        self.assertIn('"ask"', p.stdout)
+        for command in ["ls -la", "bash -c 'echo hi'"]:
+            p = self.run_copy(command)
+            self.assertEqual((p.returncode, p.stdout.strip()), (0, ""), p.stderr)
+
+    def test_syntax_error_in_tripo_plan(self):
+        (self.dir / "scripts" / "tripo_plan.py").write_text("def broken(:\n    pass\n")
+        self.check()
+
+    def test_tripo_plan_missing(self):
+        self.check()
+
+    def test_tripo_plan_raises_at_import(self):
+        (self.dir / "scripts" / "tripo_plan.py").write_text("import sys\nsys.exit(3)\n")
+        self.check()
+
+
 class ThenParser(unittest.TestCase):
     def test_parse(self):
         steps = tripo_guard.parse_then("texture,rig:model=v3.0-20260909,rig_type=others,"

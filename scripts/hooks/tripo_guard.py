@@ -36,8 +36,19 @@ import subprocess
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-import tripo_plan  # noqa: E402
+# tripo_plan (the only non-stdlib import) loads inside main's try: a broken or
+# missing module must turn into an "ask", never into a silent exit 1 (I2).
+tripo_plan = None
+
+
+def _load_plan():
+    global tripo_plan
+    if tripo_plan is None:
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+        import tripo_plan as module
+        tripo_plan = module
+    return tripo_plan
+
 
 DRY_RUN_TIMEOUT = 20
 BALANCE_TIMEOUT = 5
@@ -707,7 +718,7 @@ def _offline():
 
 
 def _cli_json(argv, timeout, cwd=None):
-    exe = tripo_plan.tripo_bin()
+    exe = _load_plan().tripo_bin()
     if exe is None:
         return None
     try:
@@ -776,6 +787,7 @@ def estimate_text(step, info, dry):
 
 def decide(command, cwd=None):
     """None (stay silent) or (decision, reason)."""
+    _load_plan()
     try:
         calls = tripo_calls(command, cwd)
     except ParseError:
@@ -837,17 +849,27 @@ def main():
     if not isinstance(command, str) or not _worth_parsing(command):
         return 0
     try:
+        _load_plan()
+    except BaseException as e:  # SyntaxError, ImportError, a sys.exit at import ...
+        print(f"tripo_guard: cannot start: {type(e).__name__}: {e}", file=sys.stderr)
+        if "tripo" in command.lower():
+            _emit("ask", f"Tripo kredi kilidi başlatılamadı: {type(e).__name__}: {e}"[:300])
+        return 0
+    try:
         result = decide(command, event.get("cwd"))
     except Exception as e:  # never let a guard bug wave a paid call through
         print(f"tripo_guard: {type(e).__name__}: {e}", file=sys.stderr)
         result = ("ask", f"Tripo kredi kilidi: kilit hatası ({type(e).__name__}), "
                          "komut ücretli olabilir")
     if result:
-        decision, reason = result
-        print(json.dumps({"hookSpecificOutput": {
-            "hookEventName": "PreToolUse", "permissionDecision": decision,
-            "permissionDecisionReason": reason}}, ensure_ascii=False))
+        _emit(*result)
     return 0
+
+
+def _emit(decision, reason):
+    print(json.dumps({"hookSpecificOutput": {
+        "hookEventName": "PreToolUse", "permissionDecision": decision,
+        "permissionDecisionReason": reason}}, ensure_ascii=False))
 
 
 if __name__ == "__main__":
