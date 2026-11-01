@@ -242,6 +242,20 @@ class References(unittest.TestCase):
         self.assertEqual([c for c in fix_options if c not in checklist], [],
                          "QA codes missing from qa-checklist.md")
 
+    def test_back_copy_paint_is_not_offered_a_global_recolour(self):
+        # T17 F5: recolour edits the whole texture (no region), so it cannot clean paint copied
+        # onto one side; the free rung is geometry only and the paint needs a retexture
+        tree = ast.parse(QA_PY.read_text(encoding="utf-8"))
+        fix_options = next(ast.literal_eval(n.value) for n in tree.body
+                           if isinstance(n, ast.Assign)
+                           and any(getattr(t, "id", None) == "FIX_OPTIONS" for t in n.targets))
+        self.assertNotIn("recolour", fix_options["BACK_COPY"])
+        self.assertIn("tripo_retexture", fix_options["BACK_COPY"])
+        row = next(ln for ln in (REFS / "fix-tradeoffs.md").read_text(encoding="utf-8").splitlines()
+                   if ln.startswith("| `BACK_COPY`"))
+        self.assertIn("none / partial", row)
+        self.assertIn("no region", row)
+
     def test_every_preflight_code_documented(self):
         doc = re.search(r"Codes made here:(.*?)FAKE_FORMAT", PREFLIGHT_PY.read_text(), re.S)
         codes = set(re.findall(r"[A-Z][A-Z_]{3,}", doc.group(1))) | {"FAKE_FORMAT"}

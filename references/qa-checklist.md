@@ -93,7 +93,7 @@ Example:
 ```
 Ham model 17.430 üçgen (bütçe 15.000), arka yüzde ön detay kopyası var. Kapı bu tarafta, ön -Y mi?
 | # | sorun | ciddiyet | A | B | öneri |
-| 1 | arka yüzde ön kopyası | S1 | flatten_region + recolour | yeniden üretim 30 | A |
+| 1 | arka yüzde ön kopyası | S1 | flatten_region (geometri düzelir, boya kalır) | retexture 10-30 | B |
 | 2 | bütçe aşımı 1,16x | S1 | - | decimate v3.0 35 | B |
 Hangileri? (ör. "1A, 2B")
 ```

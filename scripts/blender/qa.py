@@ -72,7 +72,7 @@ FIX_OPTIONS = {
     "GROUND_SLAB": ["remove_ground_slab"],
     "NOT_GROUNDED": ["normalize", "delete_region"],
     "ASYMMETRY": ["mirror_half", "clone_part"],
-    "BACK_COPY": ["flatten_region", "recolour"],
+    "BACK_COPY": ["flatten_region", "delete_region", "fill_holes", "tripo_retexture"],
     "UV_OVERLAP": ["tripo_retexture"],
     "LOW_TEXEL": ["tripo_retexture"],
     "PALETTE_DRIFT": ["recolour", "tripo_retexture"],
