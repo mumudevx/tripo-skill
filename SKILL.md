@@ -15,7 +15,8 @@ Placeholder in a Godot scene -> reference check -> one paid Tripo step at a time
 
 1. `python3 scripts/cli_watch.py check --update` (at most once a day; `--update` installs a newer tripo-cli, the user granted this permanently, K13). Read `references/cli-updates.md` when it reports anything.
    - `skipped: true` -> say nothing.
-   - Otherwise a 3-5 line Turkish summary built from `relevant` (new version `from` -> `installed`, changed parameters, defaults, prices), plus `changelog eksik: <versions>` when `changelog_missing`/`changelog_gaps` is set. Nothing changed -> say nothing.
+   - Otherwise a 3-5 line Turkish summary built from `relevant` (new version `from` -> `installed`, changed parameters, defaults, prices), plus `changelog eksik: <versions>` when `changelog_missing`/`changelog_gaps` is set. Nothing changed and no error field (next line) -> say nothing.
+   - `update_error` or `update_check_error` set -> one Turkish line saying the update or the check failed, with the error tail and the still-installed `installed` version (`update_available: true` means it is outdated). Never silent, even when `relevant` is empty. Free work goes on; paid steps run on the installed version.
    - Exit 5 (golden drift): report the drifted `golden.failed[].name` with the first diff line, then continue. Flag the matching `references/tripo-cli.md` sections and version-bound lessons "re-verify" (`lessons.py stale --cli <installed> --model <wire id> ...`) and write a proposal (section 8).
    - Exit 4 (tripo CLI missing or broken): report it; **no paid step until it is fixed**. Free work goes on.
 2. `tripo balance` (free). Keep the number for the plan lines.

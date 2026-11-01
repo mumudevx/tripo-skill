@@ -34,6 +34,8 @@ CARRY_FORWARD = {
     "skill patches go to proposals": "docs/proposals/",
     "QA details file": "qa/vNN/report.md",
     "batched question": "1A, 2B, 3 geç",
+    "failed CLI install is reported (K13, T14-1)": "update_error",
+    "failed update check is reported (K13, T14-1)": "update_check_error",
 }
 
 
@@ -106,6 +108,12 @@ class SkillMdTest(unittest.TestCase):
         text = read_skill()
         missing = [why for why, needle in CARRY_FORWARD.items() if needle not in text]
         self.assertEqual(missing, [], "SKILL.md lacks rules bound by earlier rulings")
+
+    def test_cli_updates_names_error_fields(self):
+        # T14-1: a failed install or update check must not stay silent (K13)
+        text = (ROOT / "references" / "cli-updates.md").read_text(encoding="utf-8")
+        for field in ("update_error", "update_check_error"):
+            self.assertIn(field, text)
 
     def test_no_higgsfield(self):
         # same rule as tests/test_references.py (K11), applied to SKILL.md itself

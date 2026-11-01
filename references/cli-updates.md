@@ -1,6 +1,6 @@
 # Keeping tripo-cli current (K13)
 
-When to read this: phase 0 (session start) when `cli_watch.py check` reports a new version, a changelog gap or a golden drift; and after the first paid run of any step listed in section 5.
+When to read this: phase 0 (session start) when `cli_watch.py check` reports a new version, a failed update or update check, a changelog gap or a golden drift; and after the first paid run of any step listed in section 5.
 
 ## 1. Session start check (spec 15)
 
@@ -10,17 +10,18 @@ python3 scripts/cli_watch.py check --update
 
 - Runs at most once per day (date in `<skill>/.state.json`); `--force` runs it again. A skipped run prints `{"ok", "skipped": true, "installed", "golden_ok_for", ...}` and needs no CLI at all.
 - `--update` runs `tripo update --yes` when `tripo update --check` reports a newer version: the user granted this permanently (spec 15.1). Without `--update` the watcher only looks.
-- Output: `installed`, `latest`, `updated`, `update_available`, `from`, `changelog` (`[{"version", "items"}]`, sections newer than the last seen version up to the installed one, oldest first), `changelog_missing`, `changelog_gaps`, `relevant`, `golden` (`{"passed", "failed": [{"name", "diff"}]}`), `golden_ok_for`.
+- Output: `installed`, `latest`, `updated`, `update_available`, `from`, `changelog` (`[{"version", "items"}]`, sections newer than the last seen version up to the installed one, oldest first), `changelog_missing`, `changelog_gaps`, `relevant`, `golden` (`{"passed", "failed": [{"name", "diff"}]}`), `golden_ok_for`. Only when something failed: `update_error` (the `tripo update --yes` install failed, e.g. npm prefix or permissions; `installed` stays the old version and `update_available` stays true) and `update_check_error` (`tripo update --check` failed or timed out; `latest` is null).
 - Exit 0 ok, 4 tripo CLI missing or broken, 5 at least one golden drifted.
 - State in `<skill>/.state.json` (git-ignored, read-modify-write, other keys kept): `last_check`, `cli_version`, `golden_ok_for`, and the `projects` list that `lessons.py` uses.
 
 ## 2. What to tell the user
 
-Nothing when nothing changed. Otherwise 3 to 5 Turkish lines, only about what affects the skill:
+Nothing when nothing changed and nothing failed. Otherwise 3 to 5 Turkish lines, only about what affects the skill:
 
 - new version installed (`from` -> `installed`);
 - `relevant`: changelog bullets that mention a priced parameter (from `prices.json`) or a keyword: model, default, pbr, texture, rig, decimate, segment, dry-run, estimate, validation, reject, exit, retire, price, credit, face_limit;
 - golden drift: which golden commands now behave differently (`golden.failed[].name` with the first diff line);
+- `update_error` / `update_check_error`: always one line, even when nothing else changed: the update (or the check) failed, the error tail, and the version still installed. The CLI stays outdated until the user fixes it, so never skip this line. Free work goes on;
 - `changelog_missing` / `changelog_gaps`: say "changelog eksik" and name the versions (the 0.9.0 package `CHANGELOG.md` lists 0.8.0, 0.8.1 and 0.9.0 only; the GitHub repo `vast-enterprise/Tripo-API-CLI` returned 404 when last checked).
 
 Changelog sources, in order: the installed package's `CHANGELOG.md` (`npm root -g`/tripo-cli, then the package that holds the `tripo` binary), then the GitHub raw `CHANGELOG.md` (no auth; skipped when `CLI_WATCH_OFFLINE=1`). The Tripo API changelog page (`https://developers.tripo3d.ai/en/docs/changelog`) covers API-side changes (models, prices, endpoints) that the CLI changelog does not.
