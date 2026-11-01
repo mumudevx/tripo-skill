@@ -13,9 +13,10 @@ python3 scripts/bl.py render_sheet.py -- raw/<label>/model.glb --png qa/raw/shee
 ```
 
 - `glbstat.py`: stdlib quick look (`tris`, meshes, materials, images with sizes, skins, joints, animations). GLB/glTF only; FBX/OBJ get `format` and a pointer to `qa.py`.
-- `qa.py` (through `bl.py`): GLB, GLTF, FBX and OBJ by magic bytes (quad and some rig outputs arrive as FBX). Output `{"schema": "qa/1", "file", "format", "class", "metrics", "findings"}`; each finding has `id`, `code`, `severity`, `message`, `value`, `threshold`, `fix_options`.
+- `qa.py` (through `bl.py`): GLB, GLTF, FBX and OBJ by magic bytes (quad and some rig outputs arrive as FBX). Output `{"schema": "qa/1", "file", "format", "class", "metrics", "findings"}`; each finding has `id`, `code`, `severity`, `message`, `value`, `threshold`, `fix_options` (a `BACK_COPY` on an unconfirmed front also has `"tentative": true`).
   - `--budget N` is the only budget input: take it from `profile.json` `budgets[class]`. `--class` is recorded, not looked up.
   - `--front -y|+y|-x|+x` (default `-y`, which is glTF +Z, Tripo's nominal front). Both `--front -x` and `--front=-x` work.
+  - `--front-confirmed`: the user confirmed `--front` (`front_confirmed` in the metrics). Leave it off until the front is confirmed.
   - `--symmetric x` turns on the asymmetry metric (mirror across world X); `none` (default) skips it.
   - `--ref-palette <png>` compares the texture to the reference colours (`PALETTE_DRIFT`).
 - `render_sheet.py`: one PNG, long side at most 1500 px. Rows: `lit`, `lit_no_normalmap` (normal maps cut), `albedo` (flat base colour), `wire`. Columns: front, back, left, right, top, iso, plus `game_cam` with `--game-cam "<yaw>,<pitch>,<fov>"` (from `profile.json` `game_camera`). `--light-sweep` adds 4 iso renders with the key light at 0/90/180/270 degrees. Overlay: a red arrow out of the front face, a ground grid (1 m, or 0.1 m / 0.01 m for small models) and a header with file name, triangle count, front axis and grid size.
@@ -26,8 +27,9 @@ python3 scripts/bl.py render_sheet.py -- raw/<label>/model.glb --png qa/raw/shee
 
 - Raw Tripo outputs often face +X, not glTF +Z: about 10% of models came back with the front reversed, and one fix was applied to the wrong side. The front is decided from a feature (a door, a visor, a hose outlet, a face), never from Tripo's axes.
 - `--symmetric x` mirrors across world X. On a raw model whose left/right axis is world Y (tool chest, pickup, pedal car and the A-pose worker all were), the "asymmetry" compares front with back and means nothing. Turn the model first (`normalize.py --yaw`, see `fix-tradeoffs.md`) or read the metric as unreliable.
-- `back_relief` (`BACK_COPY`) is measured along `--front`; a wrong front makes it compare the sides.
-- Confirm the front with the user as one line inside the first QA report, suggested from a feature ("Kapı bu tarafta görünüyor, ön bu mu?"). It is not a separate question. Record the answer in `decisions`; later runs pass the confirmed `--front`.
+- `back_relief` (`BACK_COPY`) depends only on the axis (X or Y), not on its sign, so qa.py reports both: `back_relief_x` and `back_relief_y`; `back_relief` is the one on the `--front` axis. A wrong axis compares the left and right sides, which correlate near 1 on a left/right-symmetric prop (tool_chest_g3 faces +X: `back_relief_x` 0.997, `back_relief_y` 0.20).
+- Until `--front-confirmed` is passed, `BACK_COPY` is tentative: info, `"tentative": true`, fired when either axis exceeds `back_relief_max`. After the front is confirmed it uses the confirmed axis only, at the calibrated severity.
+- Confirm the front with the user as one line inside the first QA report, suggested from a feature ("Kapı bu tarafta görünüyor, ön bu mu?"). It is not a separate question. Record the answer in `decisions`; later runs pass the confirmed `--front` and `--front-confirmed`. When the answer sets or changes the front, re-run QA and re-preview every side-specific fix before applying any of them (SKILL.md section 4); an unchanged default `-y` on a raw Tripo output may proceed.
 
 ## 3. Severity
 

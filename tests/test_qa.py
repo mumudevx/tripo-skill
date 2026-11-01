@@ -84,6 +84,36 @@ class QaFixtures(unittest.TestCase):
         self.assertEqual(f[0]["value"], 17430)
         self.assertEqual(f[0]["threshold"], 8000)
 
+    def test_back_relief_both_axes_and_front_confirmation(self):
+        """I5: back_relief per horizontal axis; BACK_COPY is tentative (info) until the front is
+        confirmed, and then follows the calibrated severity on the confirmed axis only."""
+        tmp = tmpdir()
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        table = json.loads(THRESHOLDS.read_text())
+        table["qa"]["back_relief_max"] = 0.0          # make BACK_COPY fire on any relief
+        table["qa"]["severity"]["BACK_COPY"] = "S2"   # pretend it ships
+        th = tmp / "th.json"
+        th.write_text(json.dumps(table))
+        draft = qa_fixture("tool_chest_g1", "--thresholds", th)
+        m = draft["metrics"]
+        self.assertEqual((m["front"], m["front_confirmed"]), ("-y", False))
+        for k in ("back_relief_x", "back_relief_y"):
+            self.assertTrue(0.0 <= m[k] <= 1.0, (k, m[k]))
+        self.assertEqual(m["back_relief"], m["back_relief_y"])
+        (f,) = by_code(draft, "BACK_COPY")
+        self.assertEqual(f["severity"], "info")
+        self.assertIs(f["tentative"], True)
+        self.assertEqual(f["value"], max(m["back_relief_x"], m["back_relief_y"]))
+        self.assertIn("back_relief_x", f["message"])
+        sure = qa_fixture("tool_chest_g1", "--front", "+x", "--front-confirmed", "--thresholds", th)
+        m = sure["metrics"]
+        self.assertEqual((m["front"], m["front_confirmed"]), ("+x", True))
+        self.assertEqual(m["back_relief"], m["back_relief_x"])  # the sign of the axis does not matter
+        (f,) = by_code(sure, "BACK_COPY")
+        self.assertEqual(f["severity"], "S2")
+        self.assertNotIn("tentative", f)
+        self.assertEqual(f["value"], m["back_relief_x"])
+
     def test_pedal_car_budget(self):
         r = qa_fixture("pedal_car_raw", "--budget", 10000)
         f = by_code(r, "OVER_BUDGET")
@@ -178,8 +208,9 @@ class QaFixtures(unittest.TestCase):
         self.assertGreater(m["texel_density"], 0)
         self.assertTrue(r["findings"])
         for i, f in enumerate(r["findings"], 1):
+            extra = {"tentative"} if f["code"] == "BACK_COPY" and f.get("tentative") else set()
             self.assertEqual(set(f), {"id", "code", "severity", "message", "value",
-                                      "threshold", "fix_options"})
+                                      "threshold", "fix_options"} | extra)
             self.assertEqual(f["id"], f"F{i}")
             self.assertIn(f["code"], CODES)
             self.assertIn(f["severity"], {"S0", "S1", "S2", "info"})

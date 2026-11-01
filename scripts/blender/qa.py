@@ -1,7 +1,7 @@
 """QA metrics for one model, 0 credits (run through scripts/bl.py).
 
     bl.py qa.py -- <model> [--budget N] [--symmetric x|none] [--front -y|+y|-x|+x]
-                  [--ref-palette <png>] [--class <class>] [--thresholds <json>]
+                  [--front-confirmed] [--ref-palette <png>] [--class <class>] [--thresholds <json>]
 
 -> {"schema": "qa/1", "file", "format", "class", "metrics": {...}, "findings": [...]}
 
@@ -25,8 +25,16 @@ export option max_texture (export.py / normalize.py --max-texture) and the other
 of the fix ladder (engine_side, tripo_retexture, tripo_decimate, tripo_rig,
 tripo_regenerate).
 
+back_relief does not depend on the sign of the front axis, only on X or Y, so it is
+reported for both horizontal axes (back_relief_x, back_relief_y); back_relief is the one
+of the --front axis. `--front-confirmed` says the user confirmed --front
+(front_confirmed in the metrics). Until then BACK_COPY is tentative: severity info,
+"tentative": true, and it fires when either axis exceeds the threshold, because the
+default -y may be the wrong axis (a raw facing +X compares its left and right sides).
+
 Extra metric keys beyond the plan: boundary_edges_raw (before weld), island_count
-(islands lists the largest 32), front, palette.chroma_ratio.
+(islands lists the largest 32), front, front_confirmed, back_relief_x, back_relief_y,
+palette.chroma_ratio.
 """
 import json
 import math
@@ -725,18 +733,39 @@ def skin_metrics(objs, meshes):
 
 # ---------------------------------------------------------------- findings
 
+def back_copy(m, th, add):
+    """BACK_COPY on the confirmed front axis; before confirmation tentative (info) on either axis."""
+    limit = th["back_relief_max"]
+    text = " similarity of front and back relief (front detail copied to the back?)"
+    if m.get("front_confirmed"):
+        value = m["back_relief"]
+        if value is not None and value > limit:
+            add("BACK_COPY", value, limit, f"{value:g}{text}")
+        return
+    axes = {k: m.get(f"back_relief_{k}") for k in ("x", "y")}
+    over = {k: v for k, v in axes.items() if v is not None and v > limit}
+    if not over:
+        return
+    value = max(over.values())
+    both = ", ".join(f"back_relief_{k} {v:g}" for k, v in axes.items() if v is not None)
+    add("BACK_COPY", value, limit,
+        f"{value:g}{text}; tentative until the front is confirmed ({both}): re-run with the "
+        f"confirmed --front and --front-confirmed before any side-specific fix",
+        severity="info", tentative=True)
+
+
 def findings(metrics, islands, a, th):
     """Findings sorted by severity; `islands` is the full list (metrics holds the top 32)."""
     sev = th["severity"]
     out = []
 
-    def add(code, value, threshold, message, severity=None):
+    def add(code, value, threshold, message, severity=None, **extra):
         severity = severity or sev[code]
         if severity not in SEVERITY_RANK:  # "rule" belongs to computed codes only
             severity = "info"
         out.append({"code": code, "severity": severity, "message": message,
                     "value": value, "threshold": threshold,
-                    "fix_options": list(FIX_OPTIONS[code])})
+                    "fix_options": list(FIX_OPTIONS[code]), **extra})
 
     m = metrics
     tris = m["tris"]
@@ -773,8 +802,6 @@ def findings(metrics, islands, a, th):
          "% of triangles lie in the bottom 3% of the height (the model rests on a point)"),
         ("ASYMMETRY", m["asymmetry"]["mean_dist_pct"], "asymmetry_pct_max", ">",
          "% of the bbox diagonal: mean distance of X-mirrored vertices to the surface"),
-        ("BACK_COPY", m["back_relief"], "back_relief_max", ">",
-         " similarity of front and back relief (front detail copied to the back?)"),
         ("UV_OVERLAP", m["uv"]["overlap_pct"], "uv_overlap_pct_max", ">",
          "% of used UV texels are covered by more than one triangle"),
         ("LOW_TEXEL", m["texel_density"], "texel_density_min", "<",
@@ -790,6 +817,7 @@ def findings(metrics, islands, a, th):
         limit = th[key]
         if (value > limit) if op == ">" else (value < limit):
             add(code, value, limit, f"{value:g}{text}")
+    back_copy(m, th, add)
     if m["ground"]["slab"]:
         add("GROUND_SLAB", True, None,
             "a thin connected sheet in the bottom 3% of the height spans >= 60% of the footprint")
@@ -814,6 +842,8 @@ def cfg(p):
     p.add_argument("--budget", type=int)
     p.add_argument("--symmetric", choices=("x", "none"), default="none")
     p.add_argument("--front", choices=("-y", "+y", "-x", "+x"), default="-y")
+    p.add_argument("--front-confirmed", action="store_true",
+                   help="the user confirmed --front; BACK_COPY stops being tentative")
     p.add_argument("--ref-palette")
     p.add_argument("--class", dest="asset_class")
     p.add_argument("--thresholds", default=DEFAULT_THRESHOLDS)
@@ -853,14 +883,17 @@ def run(a):
         "sliver_pct": sliver_pct(model),
         "ground": ground_metrics(model, topo),
         "asymmetry": asymmetry(model, topo, a.symmetric == "x"),
-        "back_relief": back_relief(model, a.front),
+        "back_relief_x": back_relief(model, "-x"),
+        "back_relief_y": back_relief(model, "-y"),
         "front": a.front,
+        "front_confirmed": bool(a.front_confirmed),
         "uv": uv_metrics(model),
         "texel_density": texel_density(model),
         "palette": palette(model, a.ref_palette, rng),
         "baked_light": baked_light(model),
         "skin": skin_metrics(objs, meshes),
     }
+    metrics["back_relief"] = metrics["back_relief_" + a.front[1]]  # the sign does not matter
     metrics = clean(metrics)
     return {"schema": SCHEMA, "file": path, "format": sio.sniff(path),
             "class": a.asset_class, "metrics": metrics,
