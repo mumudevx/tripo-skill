@@ -344,6 +344,26 @@ class Synthetic(unittest.TestCase):
                                                          "radius_m": 2})], "radius_m")
         self.assert_usage_error(src, [("delete_region", {"box": [0, 0, 0, 2, 1, 1]})], "box")
 
+    def test_flat_step_form_is_a_usage_error(self):
+        # M6: the flat form {"op": ..., "max_height_pct": 3} must not drop its parameter silently
+        src = self.model([box(0, 1, 0, 1, 0, 1)])
+        recipe = self.d / "flat.recipe.json"
+        recipe.write_text(json.dumps({"schema": "recipe/1", "asset": "thing", "source": str(src),
+                                      "steps": [{"op": "remove_ground_slab", "max_height_pct": 3}]}))
+        with self.assertRaises(bl.BlenderError) as cm:
+            apply(recipe, self.d / "work")
+        self.assertEqual(cm.exception.code, 2, cm.exception.stderr_tail)
+        self.assertIn("max_height_pct", cm.exception.stderr_tail)
+        self.assertIn("params", cm.exception.stderr_tail)
+        self.assertFalse((self.d / "work" / "v01.blend").exists())
+
+    def test_hard_edges_after_geometry_ops(self):
+        # M6: a geometry op after hard_edges would move faces out of its already fixed region
+        src = self.model([box(0, 1, 0, 1, 0, 1)])
+        self.assert_usage_error(src, [("weld_boundary", {}), ("hard_edges", {"angle": 30}),
+                                      ("delete_region", {"box": [0, 0, 0, 0.5, 1, 1]})],
+                                "hard_edges must come after")
+
     def test_separate_parts_must_be_last_geometry_step(self):
         src = self.model([box(0, 1, 0, 1, 0, 1), box(2, 3, 0, 1, 0, 1)])
         self.assert_usage_error(src, [("weld_boundary", {}), ("separate_parts", {"by": "loose"}),

@@ -72,6 +72,7 @@ python3 scripts/bl.py export.py -- work/v03.blend --out-model export/tool_chest.
 
 - `apply_recipe.py` always starts again from `source` and writes the next free `work/vNN.blend` (images packed, editable) and `work/vNN.glb`. The same recipe on the same raw gives the same result; after a regeneration the recipe is simply tried again.
 - A bad recipe (unknown op or parameter, wrong order, an op that needs a weld before it) exits 2 and writes nothing; a missing recipe or source exits 3.
+- Every step is exactly `{"op": ..., "params": {...}}`: any other key (the flat form `{"op": "remove_ground_slab", "max_height_pct": 3}`) is refused, never silently dropped. Order: `separate_parts` is the last geometry step, and `hard_edges` comes after every geometry op (`recolour` may follow it).
 - `export.py` writes the GLB for Godot (+Y up, images in their own format, a Triangulate modifier last so `tris` is exactly what the engine gets) and `export.sh`, one command to re-export after a hand edit of the `.blend` (B12).
 - Every recipe runs inside one NormalKeeper per mesh: Tripo's normals are kept on every untouched triangle and only new or changed triangles get new normals (B7). Never recalculate normals globally.
 

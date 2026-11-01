@@ -954,15 +954,25 @@ OPS = {fn.__name__: fn for fn in (normalize, weld_boundary, remove_loose, remove
 GEOMETRY_OPS = set(OPS) - {"hard_edges", "recolour"}
 
 
+STEP_KEYS = ("op", "params")
+
+
 def check_steps(steps) -> None:
-    """Static checks before any work: known ops, known/required params, op order."""
+    """Static checks before any work: known ops, known step keys, known/required params, op
+    order (separate_parts is the last geometry step; hard_edges comes after every geometry op,
+    because its region is resolved before later geometry changes)."""
     if not isinstance(steps, list) or not steps:
         raise RecipeError("steps must be a non-empty list of {op, params}")
-    separated = False
+    separated = hard = False
     for i, step in enumerate(steps, 1):
         if not isinstance(step, dict) or not isinstance(step.get("op"), str):
             raise RecipeError(f"step {i}: expected {{\"op\": <name>, \"params\": {{...}}}}")
         op, params = step["op"], step.get("params", {})
+        extra = sorted(set(step) - set(STEP_KEYS))
+        if extra:
+            raise RecipeError(f"step {i} ({op}): unknown step key(s) {', '.join(extra)}; a step is "
+                              f"{{\"op\": ..., \"params\": {{...}}}} and parameters go inside params "
+                              f"(e.g. {{\"op\": \"{op}\", \"params\": {{\"{extra[0]}\": ...}}}})")
         if op not in OPS:
             raise RecipeError(f"step {i}: unknown op {op!r} (known: {', '.join(sorted(OPS))})")
         if not isinstance(params, dict):
@@ -974,7 +984,11 @@ def check_steps(steps) -> None:
         if separated and op in GEOMETRY_OPS:
             raise RecipeError(f"step {i} ({op}) changes geometry: separate_parts must be "
                               "the last geometry step")
+        if hard and op in GEOMETRY_OPS:
+            raise RecipeError(f"step {i} ({op}) changes geometry: hard_edges must come after "
+                              "every geometry op (its region is fixed when it runs)")
         separated |= op == "separate_parts"
+        hard |= op == "hard_edges"
 
 
 def run_step(ctx, op: str, params: dict) -> dict:
