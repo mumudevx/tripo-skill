@@ -351,5 +351,30 @@ class BuildAndTable(Scratch):
         self.assertIsNone(table["import"])
 
 
+
+class DryRunArgv(unittest.TestCase):
+    """M1: --dry-run goes right after `make`, never at the end, where a value option
+    missing its value or a `--` could swallow it and submit a paid task."""
+
+    def test_dry_run_flag_follows_make(self):
+        from unittest import mock
+        seen = []
+
+        def fake(args, timeout):
+            seen.append(args)
+            return 0, json.dumps({"dry_run": True, "valid": True}), ""
+
+        with mock.patch.object(tripo_plan, "_run_tripo", fake):
+            data, err = tripo_plan.dry_run(["tripo", "make", "x.png", "--model", "tripo-v3.1",
+                                            "--json", "--name"])
+        self.assertIsNone(err)
+        self.assertEqual(seen, [["make", "--dry-run", "x.png", "--model", "tripo-v3.1",
+                                 "--json", "--name"]])
+
+    def test_only_make_is_dry_run(self):
+        with self.assertRaises(ValueError):
+            tripo_plan.dry_run(["tripo", "anim", "rig", "@a"])
+
+
 if __name__ == "__main__":
     unittest.main()

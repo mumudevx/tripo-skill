@@ -29,7 +29,8 @@ user granted this permanently, spec section 15). Without it the watcher only loo
 Golden file (tests/golden_dryruns.json): [{"name", "argv": ["tripo", "make", ...],
 "expect": {"valid", "payload_subset", "warnings_contains", "errors_contains", "estimate",
 and optionally "warnings_count", "errors_count"}}]. The runner executes `argv` with
-`--dry-run --json` appended and nothing else, ever: argv must be a `tripo make` command.
+`--dry-run --json` inserted right after `make` and nothing else, ever: argv must be a
+`tripo make` command without `--`.
 Placeholders in argv are replaced by throw-away files/ids: {png} {png2} {png3} {glb}
 {task}. payload_subset maps a step name (text-to-model, image-to-model, decimate, rig...)
 to a subset of that step's payload (dicts match recursively, lists and scalars exactly;
@@ -320,6 +321,8 @@ def run_golden(entry, exe, workdir):
     if (not isinstance(argv, list) or len(argv) < 3 or not all(isinstance(a, str) for a in argv)
             or argv[0] != "tripo" or argv[1] != "make"):
         raise ValueError(f"golden {entry.get('name')!r}: argv must be ['tripo', 'make', <input>, ...]")
+    if "--" in argv:
+        raise ValueError(f"golden {entry.get('name')!r}: argv must not contain '--'")
     _prepare(workdir)
     args = []
     for a in argv[1:]:
@@ -327,7 +330,8 @@ def run_golden(entry, exe, workdir):
             a = a.replace(key, val)
         args.append(a)
     try:
-        code, out, err = _run(exe, [*args, "--dry-run", "--json"], cwd=workdir)
+        # --dry-run right after `make`: no later token can swallow it (M1)
+        code, out, err = _run(exe, [args[0], "--dry-run", "--json", *args[1:]], cwd=workdir)
     except subprocess.TimeoutExpired:
         return [f"timed out after {TIMEOUT}s"]
     dry = _last_json(out)

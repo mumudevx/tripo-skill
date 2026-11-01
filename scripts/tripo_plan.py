@@ -142,8 +142,12 @@ def wire_id(kind, model):
 
 
 def dry_run(argv):
-    """Run `argv` (a `tripo make ...` command) with --dry-run. Returns (result, error)."""
-    code, out, err = _run_tripo([*argv[1:], "--dry-run"], DRY_RUN_TIMEOUT)
+    """Run `argv` (a `tripo make ...` command) with --dry-run. Returns (result, error).
+    --dry-run goes right after `make`, so no later token (a value option missing its
+    value, `--`) can swallow it and submit a paid task (M1)."""
+    if len(argv) < 2 or argv[1] != "make":
+        raise ValueError(f"dry_run needs a `tripo make` argv, got {argv[:2]}")
+    code, out, err = _run_tripo(["make", "--dry-run", *argv[2:]], DRY_RUN_TIMEOUT)
     data = _last_json(out)
     if code in (0, 2) and isinstance(data, dict) and data.get("dry_run") is True:
         return data, None

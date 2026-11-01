@@ -400,7 +400,20 @@ class GoldenRunner(unittest.TestCase):
                                       argv=["tripo", "make", "{png}", "{png2}", "--model", "tripo-v3.1"]), [])
         self.assertEqual(self.run_one({"valid": True, "estimate": 20},
                                       argv=["tripo", "make", "{glb}", "--then", "decimate:5000"]), [])
-        self.assertEqual(calls(self.root)[-1][-2:], ["--dry-run", "--json"])
+        # M1: --dry-run sits right after `make`, so no later token can swallow it
+        self.assertEqual(calls(self.root)[-1][:3], ["make", "--dry-run", "--json"])
+
+    def test_dry_run_survives_a_dangling_value_option(self):
+        # a golden ending in a value option would have eaten an appended --dry-run
+        self.run_one({"valid": True, "estimate": 20},
+                     argv=["tripo", "make", "{png}", "--model", "tripo-v3.1", "--name"])
+        self.assertEqual(calls(self.root)[-1][:3], ["make", "--dry-run", "--json"])
+
+    def test_double_dash_rejected(self):
+        with self.assertRaises(ValueError):
+            cli_watch.run_golden({"name": "dd", "argv": ["tripo", "make", "{png}", "--", "x"],
+                                  "expect": {"valid": True}}, self.exe, self.root)
+        self.assertEqual(calls(self.root), [])
 
     def test_only_make_dry_runs_are_ever_executed(self):
         for argv in (["tripo", "balance"], ["tripo", "update"], ["tripo", "generate", "x"],
@@ -430,6 +443,7 @@ class GoldenFile(unittest.TestCase):
         for e in self.entries:
             self.assertEqual(e["argv"][:2], ["tripo", "make"], e["name"])
             self.assertNotIn("--dry-run", e["argv"])
+            self.assertNotIn("--", e["argv"], e["name"])
             self.assertIn("valid", e["expect"], e["name"])
             self.assertIn("estimate", e["expect"], e["name"])
             self.assertLessEqual(set(e["expect"]), {
