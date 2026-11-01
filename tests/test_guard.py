@@ -206,7 +206,6 @@ class Classification(unittest.TestCase):
         self.assertAsk("tripo make @a --then uv > out.json 2>&1")
         self.assertAsk("tripo make @a --then uv &")
         self.assertAsk("if true; then tripo make @a --then uv; fi")
-        self.assertAsk("echo @a | xargs -n 1 tripo redo")
 
     # ---- C1: forms the lock must not miss ----
 
@@ -280,6 +279,55 @@ class Classification(unittest.TestCase):
                 # these mention tripo only through the path: still silent
                 self.assertIsNone(decision(cmd + " # tripo", cwd=str(d)))
 
+    # ---- I1: one approval must not cover many paid tasks ----
+
+    def test_loop_bodies_denied(self):
+        for cmd in ['for i in 1 2 3; do tripo make "crate" --model tripo-v3.1; done',
+                    "while true; do tripo mesh decimate @a --face-limit 3000; done",
+                    "until false; do tripo redo @a; done",
+                    "while tripo make x.png --model tripo-v3.1; do sleep 1; done",
+                    "for f in *.png\ndo\n  tripo make \"$f\" --model tripo-v3.1\ndone",
+                    "for f in a b; do if true; then tripo anim rig @a; fi; done",
+                    "for f in a b; do bash -c 'tripo make x.png --model tripo-v3.1'; done",
+                    "for f in a b; do mise exec -- tripo redo @a; done"]:
+            with self.subTest(cmd=cmd):
+                self.assertIn("birden çok ücretli görevi", self.assertDeny(cmd))
+        # free calls in a loop and a paid call after the loop are fine
+        self.assertSilent("for i in 1 2; do tripo task get $i; done")
+        self.assertAsk("for i in 1 2; do echo $i; done; tripo make x.png --model tripo-v3.1")
+        self.assertAsk("for x in tripo; do echo $x; done; tripo redo @a")
+
+    def test_repeaters_denied(self):
+        for cmd in ["seq 3 | xargs -I{} tripo make x.png --model tripo-v3.1",
+                    "echo @a | xargs -n 1 tripo redo",
+                    "ls *.png | parallel tripo make {} --model tripo-v3.1",
+                    "find . -name '*.png' -exec tripo make {} --model tripo-v3.1 \\;",
+                    "find . -name '*.png' -execdir tripo make {} +",
+                    "fd -e png -x tripo make {} --model tripo-v3.1",
+                    "watch -n 60 tripo make x.png --model tripo-v3.1",
+                    "ls | xargs -I{} bash -c 'tripo make {} --model tripo-v3.1'"]:
+            with self.subTest(cmd=cmd):
+                self.assertDeny(cmd)
+        self.assertSilent("find . -name tripo")
+        self.assertSilent("ls | xargs -n1 tripo task get")
+
+    def test_functions_called_many_times_denied(self):
+        self.assertDeny("f(){ tripo make x.png --model tripo-v3.1; }; f; f")
+        self.assertDeny("f() {\n  tripo redo @a\n}\nfor i in 1 2; do f; done")
+        self.assertDeny("function g { tripo anim rig @a; }; g && g")
+        # defined and called once, or never: one window
+        self.assertAsk("f(){ tripo make x.png --model tripo-v3.1; }; f")
+        self.assertAsk("f(){ tripo make x.png --model tripo-v3.1; }")
+        # a free function body called twice is fine
+        self.assertSilent("f(){ tripo balance --json; }; f; f")
+
+    def test_batch_run_and_ai_request_denied(self):
+        self.assertIn("manifest", self.assertDeny("tripo batch run jobs.yaml"))
+        self.assertIn("senaryo", self.assertDeny("tripo ai 'a knight'"))
+        self.assertDeny("tripo --profile work ai make a chest for my game")
+        # bare `tripo ai` (interactive) is one window, not a deny
+        self.assertAsk("tripo ai")
+
     def test_option_values_are_not_flags(self):
         # '--name -h' names the task '-h'; it is not a help request
         self.assertAsk("tripo make x.png --model tripo-v3.1 --name -h")
@@ -296,8 +344,7 @@ class Classification(unittest.TestCase):
                     "tripo mesh decimate @a --model v3.0 --face-limit 3000",
                     "tripo mesh uv @a", "tripo anim rig @a --rig-type biped",
                     "tripo anim retarget @a --animation preset:walk preset:run",
-                    "tripo batch run jobs.yaml", "tripo ai 'a knight'",
-                    "tripo --json make x.png --model tripo-v3.1"]:
+                    "tripo ai", "tripo --json make x.png --model tripo-v3.1"]:
             with self.subTest(cmd=cmd):
                 self.assertAsk(cmd)
 

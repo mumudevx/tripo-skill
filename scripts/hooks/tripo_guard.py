@@ -13,6 +13,9 @@ that mentions tripo, or a shell script file that mentions tripo, asks.
   exactly one paid step              -> permissionDecision "ask" with step, estimate,
                                         balance and label in Turkish
   more than one paid step            -> permissionDecision "deny" (B17)
+  a paid step that runs many times   -> "deny" (B17): a loop body, xargs, parallel,
+                                        find -exec, watch, a function called twice,
+                                        `batch run`, `ai <request>`
 
 An unknown tripo subcommand counts as one paid step (a newer CLI may bill it).
 
@@ -56,6 +59,9 @@ TRIPO_NAMES = {"tripo", "tripo-cli"}
 READ_ONLY = {"grep", "rg", "echo", "printf", "cat", "less", "more", "head", "tail", "git",
              "gh", "ls", "which", "type", "man", "sed", "awk", "jq", "wc", "sort", "diff"}
 SCRIPT_READ_LIMIT = 1 << 20
+# a paid call behind these may run many times: one approval would cover N tasks (I1)
+LOOP_WORDS = {"while", "until", "for", "select"}
+REPEATERS = {"xargs", "parallel", "find", "fd", "watch"}
 SHELLS = {"bash", "sh", "zsh", "dash", "ksh"}
 SHELL_LONG_VALUE_OPTS = {"--rcfile", "--init-file"}
 NPX = {"npx", "bunx"}
@@ -79,8 +85,9 @@ def _lex(command):
     except ValueError as e:
         raise ParseError(str(e)) from None
     out = []
-    for t in tokens:  # shlex glues runs of punctuation (");", ")|"): split into operators
-        if t and t not in OPERATORS and all(c in PUNCT for c in t):
+    for t in tokens:  # shlex glues runs of punctuation (");", ")|"): split into operators;
+        # "()" stays whole, it marks a function definition
+        if t and t not in OPERATORS and t != "()" and all(c in PUNCT for c in t):
             while t:
                 op = next((o for o in OPERATORS_BY_LEN if t.startswith(o)), t[0])
                 out.append(op)
@@ -211,8 +218,9 @@ def _skip_opts(argv, i, value_opts):
 
 def _unwrap(argv):
     """Drop shell keywords, assignments and wrappers. Returns (program argv, nested
-    command strings to scan as well, script file run by a shell or None)."""
-    i, nested = 0, []
+    command strings to scan as well, script file run by a shell or None, the name of
+    a wrapper that runs the command many times (xargs) or None)."""
+    i, nested, rep = 0, [], None
     while i < len(argv):
         t = argv[i]
         b = _base(t)
@@ -223,18 +231,19 @@ def _unwrap(argv):
             while i < len(argv) and argv[i] == "-p":
                 i += 1
             if i < len(argv) and argv[i] in ("-v", "-V"):
-                return [], nested, None  # a lookup, runs nothing
+                return [], nested, None, rep  # a lookup, runs nothing
         elif b == "rtk":
             i += 2 if i + 1 < len(argv) and argv[i + 1] == "proxy" else 1
         elif b in WRAPPER_VALUE_OPTS:
+            rep = rep or (b if b in REPEATERS else None)
             i = _skip_opts(argv, i + 1, WRAPPER_VALUE_OPTS[b])
             if b == "timeout" and i < len(argv):
                 i += 1  # the duration
         elif b in NPX or (b in ("pnpm", "yarn") and argv[i + 1:i + 2] == ["dlx"]):
             i = _skip_opts(argv, i + (1 if b in NPX else 2), {"-p", "--package"})
             if i < len(argv) and argv[i].split("@")[0].lower() in TRIPO_NAMES:
-                return ["tripo", *argv[i + 1:]], nested, None
-            return [], nested, None
+                return ["tripo", *argv[i + 1:]], nested, None, rep
+            return [], nested, None, rep
         elif b in SHELLS:
             # Walk all options like the shell does: -o/+o/-O/+O (also inside
             # combined flags such as -euo) take a value, and with -c anywhere
@@ -258,16 +267,16 @@ def _unwrap(argv):
                 if has_c:
                     nested.append(argv[j])
                 else:
-                    return [], nested, argv[j]
-            return [], nested, None
+                    return [], nested, argv[j], rep
+            return [], nested, None, rep
         elif t in ("source", ".") and i + 1 < len(argv):
-            return [], nested, argv[i + 1]
+            return [], nested, argv[i + 1], rep
         elif t == "eval":
             nested.append(" ".join(argv[i + 1:]))
-            return [], nested, None
+            return [], nested, None, rep
         else:
             break
-    return argv[i:], nested, None
+    return argv[i:], nested, None, rep
 
 
 def _script_mentions_tripo(path, cwd):
@@ -285,26 +294,28 @@ def _read_only(argv):
     return b in READ_ONLY or (b.startswith("python") and argv[1:3] == ["-m", "unittest"])
 
 
-def _call(args, cwd):
-    return {"args": args, "cwd": cwd}
+def _call(args, cwd, stdin=False):
+    return {"args": args, "cwd": cwd, "stdin": stdin}
 
 
 def _opaque(why):
     return {"opaque": why}
 
 
-def tripo_calls(command, cwd=None, _tripo_in=None):
-    """Every tripo call in `command`: [{"args": args after the tripo program, "cwd"}],
-    plus {"opaque": reason} for a program the guard cannot see through (a `$VAR`
-    program or a shell script that mentions tripo): those ask, never stay silent."""
+def tripo_calls(command, cwd=None, _tripo_in=None, _repeat=None):
+    """Every tripo call in `command`: [{"args": args after the tripo program, "cwd",
+    "repeat"}], plus {"opaque": reason, "repeat"} for a program the guard cannot see
+    through (a `$VAR` program or a shell script that mentions tripo): those ask, never
+    stay silent. "repeat" names why the call may run many times (a loop body, xargs,
+    find -exec, a function called twice) or is None."""
     if _tripo_in is None:
         _tripo_in = "tripo" in command.lower()
     command, heredocs = _heredocs(command)
     tokens = _lex(command)
     calls = []
 
-    def sub(text, at=cwd):
-        return tripo_calls(text, at, _tripo_in)
+    def sub(text, at=cwd, repeat=_repeat):
+        return tripo_calls(text, at, _tripo_in, repeat)
 
     for body, quoted, line in heredocs:
         if _feeds_shell(re.split(r"[\s|;&()]+", line)):
@@ -320,24 +331,71 @@ def tripo_calls(command, cwd=None, _tripo_in=None):
     for idx, word in herestrings:
         if idx < len(segments) and _feeds_shell(segments[idx]):
             calls += sub(word)
+
+    loop, braces, pending_func, invoked = 0, [], None, {}
     for seg in segments:
-        cwd, found = _segment_calls(seg, cwd, _tripo_in, sub)
+        seg, header = list(seg), False
+        if pending_func and seg[:1] != ["{"]:
+            pending_func = None
+        while seg:  # control words: track loops and function bodies
+            w = seg[0]
+            if w in LOOP_WORDS:
+                loop += 1
+                if w in ("for", "select"):
+                    header = True  # `for x in words`: the words are not a command
+                    break
+                seg.pop(0)
+            elif w == "done":
+                loop = max(0, loop - 1)
+                seg.pop(0)
+            elif w == "{":
+                braces.append(pending_func)
+                pending_func = None
+                seg.pop(0)
+            elif w == "}":
+                if braces:
+                    braces.pop()
+                seg.pop(0)
+            elif w == "function" and len(seg) > 1:
+                pending_func, seg = seg[1], seg[2:]
+                if seg[:1] == ["()"]:
+                    seg.pop(0)
+            elif len(seg) > 1 and seg[1] == "()":
+                pending_func, seg = seg[0], seg[2:]
+            else:
+                break
+        if header:
+            continue
+        repeat = _repeat or ("döngü içinde" if loop else None)
+        func = next((f for f in reversed(braces) if f), None)
+        cwd, found, prog = _segment_calls(seg, cwd, _tripo_in, sub, repeat)
+        for call in found:
+            if func:
+                call["func"] = func
+        if prog:
+            invoked.setdefault(prog, []).append(repeat)
         calls += found
+    for call in calls:  # a function body runs once per call of the function
+        func = call.pop("func", None)
+        runs = invoked.get(func, [])
+        if func and not call.get("repeat") and (len(runs) > 1 or any(runs)):
+            call["repeat"] = f"fonksiyon {func} birden çok kez çağrılıyor"
     return calls
 
 
-def _segment_calls(seg, cwd, tripo_in, sub):
-    """Calls in one simple command. Returns (cwd after it, calls)."""
-    argv, nested, script = _unwrap(seg)
+def _segment_calls(seg, cwd, tripo_in, sub, repeat=None):
+    """Calls in one simple command. Returns (cwd after it, calls, program name)."""
+    argv, nested, script, rep = _unwrap(seg)
+    repeat = repeat or (f"{rep} ile" if rep else None)
     calls = []
     for body in nested:
-        calls += sub(body, cwd)
+        calls += sub(body, cwd, repeat)
     if script is not None and _script_mentions_tripo(script, cwd):
         calls.append(_opaque(f"betik tripo içeriyor ({script})"))
-    if not argv:
-        return cwd, calls
-    prog = argv[0]
-    if prog == "cd":
+    prog = argv[0] if argv else None
+    if prog is None:
+        pass
+    elif prog == "cd":
         target = argv[1] if len(argv) > 1 else "~"
         if target != "-":
             cwd = os.path.join(cwd or os.getcwd(), os.path.expanduser(target))
@@ -349,15 +407,20 @@ def _segment_calls(seg, cwd, tripo_in, sub):
     elif not _read_only(argv):
         # Fail closed: an unknown runner (mise exec, npm exec, find -exec, caffeinate,
         # watch, ...) is analysed from its first tripo word, or its first shell.
+        if _base(prog) in REPEATERS:
+            repeat = repeat or f"{_base(prog)} ile"
         for k in range(1, len(argv)):
             if _is_tripo_word(argv[k]):
                 args = argv[k + 1:]
                 calls.append(_call(args[1:] if args[:1] == ["--"] else args, cwd))
                 break
             if _base(argv[k]) in SHELLS or argv[k] == "eval":
-                calls += _segment_calls(argv[k:], cwd, tripo_in, sub)[1]
+                calls += _segment_calls(argv[k:], cwd, tripo_in, sub, repeat)[1]
                 break
-    return cwd, calls
+    for call in calls:
+        if repeat and not call.get("repeat"):
+            call["repeat"] = repeat
+    return cwd, calls, prog
 
 
 # ---------- tripo argv ----------
@@ -518,8 +581,9 @@ def _source(positionals):
     return "generate", {"prompt": " ".join(positionals)}
 
 
-def _step(what, kind=None, model=None, params=None, inp=None):
-    return {"what": what, "plan": None if kind is None else
+def _step(what, kind=None, model=None, params=None, inp=None, multi=None):
+    """One paid step; `multi` says why it actually starts many paid tasks."""
+    return {"what": what, "multi": multi, "plan": None if kind is None else
             {"kind": kind, "model": model, "params": params or {}, "input": inp or {}}}
 
 
@@ -612,8 +676,13 @@ def analyze(args):
     elif cmd == "make":
         steps = _make_steps(pos, opts)
         out["make"] = rest
+    elif cmd == "ai" and pos:
+        steps = [_step(f"ai {' '.join(pos)}"[:80], multi="senaryo + zincir çalıştırır")]
     elif cmd in ("redo", "ai"):
         steps = [_step(f"{cmd} {' '.join(pos) or ('@last' if cmd == 'redo' else '')}".strip())]
+    elif cmd == "batch" and pos[:1] == ["run"]:
+        steps = [_step(f"batch run {' '.join(pos[1:])}".strip(),
+                       multi="manifestteki her işi çalıştırır")]
     elif cmd in FREE_SUB or cmd in PAID_GROUPS:
         if not pos:
             steps = []  # a bare group prints its help
@@ -713,15 +782,24 @@ def decide(command, cwd=None):
         if "tripo" in command.lower():
             return "ask", "Tripo kredi kilidi: komut ayrıştırılamadı, ücretli olabilir"
         return None
-    found, opaque = [], []
+    found, opaque, many = [], [], []
     for call in calls:
         if "opaque" in call:
             opaque.append(call["opaque"])
+            if call.get("repeat"):
+                many.append(f"{call['opaque']} ({call['repeat']})")
             continue
         info = analyze(call["args"])
-        found += [(step, info, call["cwd"]) for step in info["steps"]]
+        for step in info["steps"]:
+            found.append((step, info, call["cwd"]))
+            why = step.get("multi") or call.get("repeat")
+            if why:
+                many.append(f"{step['what']} ({why})")
     if not found and not opaque:
         return None
+    if many:
+        return "deny", (f"{B17}: tek onay birden çok ücretli görevi başlatır: "
+                        f"{'; '.join(many)}")
     if len(found) > 1:
         names = ", ".join(step["what"] for step, _, _ in found)
         return "deny", f"{B17}: bu komutta {len(found)} ücretli adım var ({names})"
