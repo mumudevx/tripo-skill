@@ -62,7 +62,7 @@ Topology metrics run on a welded copy (Tripo splits vertices at every UV seam; t
 | `BAKED_LIGHT` | correlation of albedo brightness with upward normals | `baked_light_max` 0.35 | also look at the light-sweep row: baked light does not move with the key light; info, agent-eye: no labelled positive (clean metal knobs measure 0.6) |
 | `TOO_MANY_INFLUENCES` | most bone weights on one vertex | `influences_max` 4 | rigged models only; S1 |
 | `MULTI_MATERIAL` | material count | `materials_max` 1 | 1 material per prop is the draw-call rule; glass may need a second; info, agent-eye: no labelled positive |
-| `TEXTURE_OVERSIZE` | largest texture side | `texture_max_px` 2048 | fixed in Godot import or Blender, not a generation problem; info, agent-eye: no labelled positive |
+| `TEXTURE_OVERSIZE` | largest texture side | `texture_max_px` 2048 | fixed at export (`export.py --max-texture`), not a generation problem; info, agent-eye: no labelled positive |
 
 Extra metrics with no code: `tris`, `verts`, `verts_welded`, `meshes`, `images` (name, w, h), `bbox` (min, max, size in Blender axes, Z up), `uv`, `palette.chroma_ratio`, `skin.joints`.
 

@@ -20,9 +20,10 @@ above 2 x). `--class` is recorded only; the budget is passed in by the caller.
 mirror is world X, so turn the model to face -Y first (raw Tripo outputs often
 face +X). Findings carry `fix_options`: fixkit op names (weld_boundary,
 remove_loose, remove_ground_slab, delete_region, fill_holes, mirror_half,
-flatten_region, clone_part, hard_edges, separate_parts, recolour, normalize) and
-the other rungs of the fix ladder (engine_side, tripo_retexture, tripo_decimate,
-tripo_rig, tripo_regenerate).
+flatten_region, clone_part, hard_edges, separate_parts, recolour, normalize), the
+export option max_texture (export.py / normalize.py --max-texture) and the other rungs
+of the fix ladder (engine_side, tripo_retexture, tripo_decimate, tripo_rig,
+tripo_regenerate).
 
 Extra metric keys beyond the plan: boundary_edges_raw (before weld), island_count
 (islands lists the largest 32), front, palette.chroma_ratio.
@@ -79,7 +80,7 @@ FIX_OPTIONS = {
     "BAKED_LIGHT": ["tripo_retexture", "recolour"],
     "TOO_MANY_INFLUENCES": ["engine_side", "tripo_rig"],
     "MULTI_MATERIAL": ["engine_side", "separate_parts"],
-    "TEXTURE_OVERSIZE": ["engine_side"],
+    "TEXTURE_OVERSIZE": ["max_texture"],   # export.py / normalize.py --max-texture
 }
 
 

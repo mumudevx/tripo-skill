@@ -256,6 +256,24 @@ class References(unittest.TestCase):
         self.assertIn("none / partial", row)
         self.assertIn("no region", row)
 
+    def test_fix_options_are_performed_by_a_script(self):
+        # T17 F6: fix_options name only what a script does (a fixkit op, the export flag, or a
+        # rung of the ladder routed through tripo_plan / the engine table)
+        tree = ast.parse(QA_PY.read_text(encoding="utf-8"))
+        fix_options = next(ast.literal_eval(n.value) for n in tree.body
+                           if isinstance(n, ast.Assign)
+                           and any(getattr(t, "id", None) == "FIX_OPTIONS" for t in n.targets))
+        ops_src = (SCRIPTS / "blender" / "fixkit" / "ops.py").read_text(encoding="utf-8")
+        registry = re.search(r"OPS = \{fn.__name__: fn for fn in \((.*?)\)\}", ops_src, re.S).group(1)
+        fixkit = set(re.findall(r"[a-z_]+", registry))
+        export_src = (SCRIPTS / "blender" / "export.py").read_text(encoding="utf-8")
+        exported = {"max_texture"} if '"--max-texture"' in export_src else set()
+        ladder = {"engine_side", "tripo_retexture", "tripo_decimate", "tripo_rig", "tripo_regenerate"}
+        unknown = {c: [o for o in opts if o not in fixkit | exported | ladder]
+                   for c, opts in fix_options.items()}
+        self.assertEqual({c: o for c, o in unknown.items() if o}, {})
+        self.assertEqual(fix_options["TEXTURE_OVERSIZE"], ["max_texture"])
+
     def test_every_preflight_code_documented(self):
         doc = re.search(r"Codes made here:(.*?)FAKE_FORMAT", PREFLIGHT_PY.read_text(), re.S)
         codes = set(re.findall(r"[A-Z][A-Z_]{3,}", doc.group(1))) | {"FAKE_FORMAT"}

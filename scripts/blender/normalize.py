@@ -2,12 +2,12 @@
 
     bl.py normalize.py -- <in> --out-model <out.glb> [--yaw DEG]
                           [--target-size X,Y,Z | --target-height H]
-                          [--pivot bottom_center|center] [--name <asset>]
+                          [--pivot bottom_center|center] [--name <asset>] [--max-texture PX]
 
 -> {"out_model", "bbox": {"min", "max", "size"}, "scale_applied", "yaw", "pivot",
     "renamed": {"root", "objects", "meshes", "materials", "images"} ("root": the root
     node's name; the others {old: new}; {} without --name), "offset", "tris", "weld": {"eps", "verts_before", "verts_after"},
-    "normals": {"kept", "rebuilt"}}
+    "normals": {"kept", "rebuilt"}, "textures_resized": [...]}
 
 Order: weld (1e-5 x bbox diagonal, _mesh.weld_eps) -> yaw -> uniform scale to fit the
 target -> pivot -> apply transforms -> rename -> export GLB. Everything that touches
@@ -23,7 +23,8 @@ centre. `offset` is the translation applied after yaw and scale.
 
 Input: GLB/GLTF/FBX/OBJ (by magic bytes). Rigged inputs are refused (exit 2): normalize
 runs before rigging. Output is always GLB, written atomically; a stale --out-model is
-removed first.
+removed first. `--max-texture PX` downsizes images above PX before the export, exactly as
+export.py does (the free TEXTURE_OVERSIZE fix).
 """
 import argparse
 import contextlib
@@ -37,6 +38,7 @@ import numpy as np
 from mathutils import Matrix
 
 import _mesh
+import export
 import skill_io as sio
 from fixkit import normals
 
@@ -220,6 +222,7 @@ def cfg(p):
     fit.add_argument("--target-height", type=_positive)
     p.add_argument("--pivot", choices=("bottom_center", "center"), default="bottom_center")
     p.add_argument("--name", type=_asset_name)
+    p.add_argument("--max-texture", type=export._max_texture, default=None)
 
 
 def run(a):
@@ -260,8 +263,9 @@ def run(a):
     rebuilt = sum(k.stats["rebuilt"] for k in keepers.values())
 
     lo, hi = _mesh.world_bbox(meshes)
+    resized = export.downsize_images(a.max_texture) if a.max_texture else []
     export_glb(out_model)
-    return {"out_model": out_model,
+    return {"out_model": out_model, "textures_resized": resized,
             "bbox": {"min": lo.tolist(), "max": hi.tolist(), "size": (hi - lo).tolist()},
             **info, "renamed": renamed,
             "tris": sum(len(o.data.loop_triangles) for o in meshes),

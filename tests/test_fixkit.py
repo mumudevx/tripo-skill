@@ -4,6 +4,7 @@ import os
 import shutil
 import stat
 import subprocess
+import sys
 import unittest
 from pathlib import Path
 
@@ -345,6 +346,55 @@ class Synthetic(unittest.TestCase):
         self.assert_usage_error(src, [("weld_boundary", {}), ("separate_parts", {"by": "loose"}),
                                       ("delete_region", {"box": [0, 0, 0, 0.5, 1, 1]})],
                                 "separate_parts")
+
+
+@unittest.skipUnless(os.path.exists(BLENDER), "blender not available")
+class MaxTexture(unittest.TestCase):
+    """T17 F6: the free TEXTURE_OVERSIZE fix is export.py / normalize.py --max-texture."""
+
+    def test_export_max_texture_downsizes_glb_not_blend(self):
+        a, _, work = mirror_run()
+        blend = Path(a["blend"])
+        before = blend.read_bytes()
+        self.assertGreater(max(max(i["width"], i["height"]) for i in glbstat.stat(a["glb"])["images"]),
+                           1024)
+        d = scratch() / "maxtex"
+        out = d / "tool_chest.glb"
+        os.environ["BLENDER"] = BLENDER
+        e = bl.run("export.py", [str(blend), "--out-model", str(out), "--max-texture", "1024"])
+        self.assertTrue(e["textures_resized"], e)
+        for r in e["textures_resized"]:
+            self.assertEqual(max(r["to"]), 1024)
+            self.assertGreater(max(r["from"]), 1024)
+        imgs = glbstat.stat(out)["images"]
+        self.assertTrue(imgs)
+        self.assertTrue(all(max(i["width"], i["height"]) <= 1024 for i in imgs), imgs)
+        self.assertEqual({i["mime"] for i in imgs}, {"image/jpeg"})       # own format kept
+        self.assertEqual(glbstat.stat(out)["tris"], a["tris"])
+        self.assertEqual(blend.read_bytes(), before)                       # source keeps 4096
+        self.assertIn("--max-texture 1024", Path(e["export_sh"]).read_text())
+        codes = [f["code"] for f in qa(out)["findings"]]
+        self.assertNotIn("TEXTURE_OVERSIZE", codes)
+
+    def test_normalize_max_texture(self):
+        src = fixture("jerry_can_g3")                                     # one 4096 JPEG
+        skip_if_missing(src)
+        d = tmpdir()
+        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
+        out = d / "jerry_can.glb"
+        os.environ["BLENDER"] = BLENDER
+        r = bl.run("normalize.py", [str(src), "--out-model", str(out), "--max-texture", "2048"])
+        self.assertEqual([x["to"] for x in r["textures_resized"]], [[2048, 2048]])
+        self.assertEqual([(i["width"], i["height"], i["mime"]) for i in glbstat.stat(out)["images"]],
+                         [(2048, 2048, "image/jpeg")])
+
+    def test_bad_max_texture_is_usage_error(self):
+        a, _, _ = mirror_run()
+        env = dict(os.environ, BLENDER=BLENDER)
+        p = subprocess.run([sys.executable, str(SCRIPTS / "bl.py"), "export.py", "--", a["blend"],
+                            "--out-model", str(scratch() / "bad.glb"), "--max-texture", "huge"],
+                           capture_output=True, text=True, env=env, timeout=300)
+        self.assertEqual(p.returncode, 2, p.stdout + p.stderr)
 
 
 @unittest.skipUnless(os.path.exists(BLENDER), "blender not available")

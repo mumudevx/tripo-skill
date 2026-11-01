@@ -19,8 +19,8 @@ Who fixes what (K12):
 |---|---|
 | geometry, holes, loose parts, normals | glass and transparency material |
 | scale, direction, pivot | collision |
-| UVs, texture and colour fixes | LODs (Godot generates them) |
-| separating parts, naming | import settings (texture size limit, compression) |
+| UVs, texture and colour fixes, texture size (`--max-texture`) | LODs (Godot generates them) |
+| separating parts, naming | import settings (the params `godot_place.py` writes; no texture size limit) |
 
 Order: **cloud first, then local**. All paid Tripo steps run (each its own command, B17) before any Blender fix; the raw output stays frozen in `raw/<label>/`. The one exception is rig (B18): rig is the last cloud step and comes after the Blender geometry fixes. Warn when a Blender choice makes a later Tripo step more expensive: a locally edited model can only go back to Tripo as a file, which adds an import task with an unpublished price and normalizes scale.
 
@@ -46,7 +46,7 @@ Columns: A = Blender ops (the `fix_options` names `qa.py` reports); B = Tripo ro
 | `BAKED_LIGHT` | `recolour` (partial: lifts dark areas, cannot remove a light direction) | `tripo_retexture`: texture `model=v3.5;delight=true` 10 to 30 | never | A refuses rigged; B unknown | A yes | A yes; B same mesh |
 | `TOO_MANY_INFLUENCES` | none in fixkit (geometry is frozen after rig) | `tripo_rig` again from the clean pre-rig GLB, 25 + import | never | `engine_side`: accept it when the target allows (Godot supports up to 8 weights; 4 is the portable limit), keeps the rig | yes | yes |
 | `MULTI_MATERIAL` | `separate_parts` by material when the parts should move apart; else `engine_side`: keep a second material only for glass or emissive parts | none | never | A refuses rigged | A yes | A yes (each part gets its own bottom-centre pivot) |
-| `TEXTURE_OVERSIZE` | none | convert `texture_size=1024` or `2048`, 10 (advanced tier) | never | `engine_side`: Godot texture import Size Limit, or resize in Blender; keeps everything | yes | yes |
+| `TEXTURE_OVERSIZE` | `max_texture`: `export.py --max-texture 1024` (or `normalize.py --max-texture`) scales every image above that size down at export, same format (JPEG stays JPEG); the `.blend` keeps the full-size source and `export.sh` repeats the flag. QA the exported GLB to confirm | convert `texture_size=1024` or `2048`, 10 (advanced tier) | never | A yes | A yes | A yes |
 
 Notes on the table:
 - Material budget for `MULTI_MATERIAL`: 1 per prop, 2 with a glass, emissive or alpha part.
