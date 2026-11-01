@@ -93,10 +93,10 @@ Look at the whole sheet every time; several known defects have no reliable numbe
 Example:
 
 ```
-Ham model 17.430 üçgen (bütçe 15.000), arka yüzde ön detay kopyası var. Kapı bu tarafta, ön -Y mi?
+Ham model 17.430 üçgen (bütçe 15.000), arka yüzde ön detay kopyası olabilir. Kapı bu tarafta, ön -Y mi?
 | # | sorun | ciddiyet | A | B | öneri |
-| 1 | arka yüzde ön kopyası | S1 | flatten_region (geometri düzelir, boya kalır) | retexture 10-30 | B |
-| 2 | bütçe aşımı 1,16x | S1 | - | decimate v3.0 35 | B |
+| 1 | bütçe aşımı 1,16x | S1 | - | decimate v3.0 35 | B |
+| 2 | arka yüzde ön kopyası | info (ön onaylanana kadar geçici) | flatten_region (geometri düzelir, boya kalır) | retexture 10-30 | B |
 Hangileri? (ör. "1A, 2B")
 ```
 

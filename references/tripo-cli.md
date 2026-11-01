@@ -162,12 +162,26 @@ Golden estimates (0.9.0): v3.1 image + v3.5 + detailed = 40; v3.1 text = 20; v3.
 
 ## 7. Credit lock (`scripts/hooks/tripo_guard.py`)
 
-- A global PreToolUse hook on Bash. It finds tripo calls behind `rtk`, `env`, `VAR=...`, `cd ... &&`, pipes, `bash -c`, `$(...)`, `npx tripo-cli` and a path to the binary.
-- Free (no window): `--dry-run`, `--help`, `docs`, `models`, `balance`, `usage`, `whoami`, `doctor`, `history`, `view`, `config`, `update`, `completion`, `login`, `logout`, `use`, `mcp` (starting the server), `task get|list|watch`, `files upload`, `anim check`.
-- One paid step: a permission window with the step, the estimate, the balance and the label (Turkish). That window is the approval (K14). Without the lock (no `tripo_guard` in `~/.claude/settings.json`), the skill asks once per paid step itself.
-- More than one paid step in one command: denied, no window (B17).
-- An unknown subcommand counts as paid.
-- **The lock does not cover the MCP server.** A `tripo_make` MCP tool call is not a Bash command, so the hook never sees it, and `tripo_make` has no dry-run or confirmation. The skill never registers or uses `tripo mcp`.
+- A global PreToolUse hook on Bash. It finds tripo calls behind `rtk`, `env`, `VAR=...`, `cd ... &&`, pipes, `bash -c`, `eval`, `$(...)` and backticks, heredocs fed to a shell, `npx tripo-cli`, a path to the binary (names case-folded), and in a shell script that `bash`/`sh`/`source` runs. Comments, quoted text and quoted heredoc bodies are text.
+- **Is the lock on?** Only the functional check of SKILL.md section 1 step 4 decides: it pipes a synthetic paid event into the installed hook and expects `"permissionDecision": "ask"` (`LOCK OK`). A grep for `tripo_guard` in `~/.claude/settings.json` proves nothing. With the lock the window is the approval (K14); without it the skill asks in chat once before every paid step (SKILL.md section 3).
+- Free, no output (other hooks decide): `--dry-run`, `--help`, `--version`, `docs`, `models`, `balance`, `usage`, `whoami`, `doctor`, `history`, `view`, `config`, `update`, `completion`, `login`, `logout`, `use`, `mcp` with no stdin (starting the server), `task get|list|watch`, `files upload`, `anim check`, `--then rig-check` on a task.
+- The guard's decisions:
+
+| command | decision |
+|---|---|
+| exactly one paid step | `ask`: a window with the step, the estimate (make dry-run, else the price table, else "tahmin yok"), the balance and the label, in Turkish. A local file's leading import belongs to that step |
+| a loop body (`for`/`while`/`until`/`select`, zsh `repeat`), a repeater (`xargs`, `parallel`, `find -exec`, `fd -x`, `watch`), a function called more than once, `tripo batch run`, `tripo ai <request>` | `deny` (B17): one approval would start many paid tasks |
+| two or more paid steps in one command (chain steps, a scenario chain, candidates, two calls, or a make dry-run that plans more than one paid task) | `deny` (B17) |
+| an unknown tripo subcommand | counts as one paid step |
+| an unknown runner (`mise exec`, `npm exec`, `caffeinate`, ...) that is not a read-only tool | read from its first tripo word: classified like a bare call |
+| an opaque program in a command that mentions tripo (`$VAR`, `$(...)`), or a shell script file that calls tripo | `ask`, marked "görülemeyen çağrı" |
+| `tripo mcp` with stdin from a pipe, file, heredoc or here-string | `ask`: JSON-RPC can call `tripo_make` |
+| a command the guard cannot parse | `ask` when it mentions tripo |
+| an error inside the guard | `ask` |
+| the hook cannot start (its `tripo_plan` import fails) | `ask` on every command that mentions tripo |
+
+- Hard rule 3 still applies: run tripo as a bare `tripo …` or the absolute path, one paid step per command, never through a wrapper, script, loop, function or `$VAR`. A "görülemeyen çağrı" window means the command breaks that rule: rewrite it as a bare call instead of approving it.
+- **The lock does not cover the MCP tools.** A `tripo_make` MCP tool call is not a Bash command, so the hook never sees it, and `tripo_make` has no dry-run or confirmation. The skill never registers or uses `tripo mcp` (hard rule 9).
 
 ## 8. Exit codes and what to do (spec 16.2)
 

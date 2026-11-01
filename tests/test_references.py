@@ -282,6 +282,38 @@ class References(unittest.TestCase):
         # M7: the recommended paid rung for UV overlap is the Smart UV step, as fix-tradeoffs.md says
         self.assertEqual(fix_options["UV_OVERLAP"][0], "tripo_uv")
 
+    def test_report_examples_use_calibrated_severity(self):
+        # R6: the QA report examples show BACK_COPY at qa.py's calibrated severity
+        # (info, tentative before the front is confirmed), never S1
+        severity = json.loads(THRESHOLDS.read_text())["qa"]["severity"]["BACK_COPY"]
+        examples = []
+        for path in (ROOT / "SKILL.md", REFS / "qa-checklist.md"):
+            rows = [ln for ln in path.read_text(encoding="utf-8").splitlines()
+                    if ln.startswith("| ") and "arka yüzde ön kopyası" in ln]
+            self.assertEqual(len(rows), 1, path)
+            cell = rows[0].split("|")[3].strip()
+            self.assertTrue(cell.startswith(severity), f"{path.name}: {cell!r}")
+            self.assertIn("geçici", cell, path.name)
+            examples.append(rows[0])
+        self.assertEqual(examples[0], examples[1], "SKILL.md and qa-checklist.md differ")
+
+    def test_credit_lock_section_matches_guard(self):
+        # R5: tripo-cli.md section 7 describes the guard as it is
+        text = (REFS / "tripo-cli.md").read_text(encoding="utf-8")
+        section = text[text.index("## 7. Credit lock"):text.index("## 8.")]
+        guard = (SCRIPTS / "hooks" / "tripo_guard.py").read_text(encoding="utf-8")
+        free_top = ast.literal_eval(re.search(r"FREE_TOP = (\{.*?\})", guard, re.S).group(1))
+        self.assertEqual(sorted(c for c in free_top if f"`{c}" not in section), [])
+        # the lock check is functional (SKILL.md section 1), never a settings grep
+        self.assertIn("LOCK OK", section)
+        self.assertIn("proves nothing", section)
+        self.assertNotIn("Without the lock (no `tripo_guard`", section)
+        for phrase in ("`ask`", "`deny` (B17)", "loop", "repeat", "xargs", "batch run",
+                       "tripo ai <request>", "görülemeyen çağrı", "unknown runner",
+                       "`tripo mcp` with stdin", "cannot start", "leading import"):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, section)
+
     def test_every_preflight_code_documented(self):
         doc = re.search(r"Codes made here:(.*?)FAKE_FORMAT", PREFLIGHT_PY.read_text(), re.S)
         codes = set(re.findall(r"[A-Z][A-Z_]{3,}", doc.group(1))) | {"FAKE_FORMAT"}
