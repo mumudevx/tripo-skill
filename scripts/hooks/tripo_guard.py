@@ -17,7 +17,9 @@ that mentions tripo, or a shell script file that mentions tripo, asks.
                                         find -exec, watch, a function called twice,
                                         `batch run`, `ai <request>`
 
-An unknown tripo subcommand counts as one paid step (a newer CLI may bill it).
+An unknown tripo subcommand counts as one paid step (a newer CLI may bill it), and
+so does `tripo mcp` fed through a pipe, file, heredoc or here-string (JSON-RPC can
+call tripo_make).
 
 The estimate for `make` comes from the same argv run with `--dry-run --json`
 inserted right after `make` (20 s timeout); chain steps and other commands are
@@ -60,6 +62,7 @@ NO_ESTIMATE = "tahmin yok"
 PUNCT = "();<>|&\n`"
 SEPARATORS = {"&&", "||", ";", ";;", "|", "|&", "&", "\n", "(", ")", "`", "$"}
 REDIRECTS = {">", ">>", "<", "<<", "<<<", ">&", "<&", "&>", "&>>", ">|", "<>"}
+STDIN_REDIRECTS = {"<", "<<", "<<<", "<&", "<>"}
 OPERATORS = (SEPARATORS | REDIRECTS) - {"$"}
 OPERATORS_BY_LEN = sorted(OPERATORS, key=len, reverse=True)
 ASSIGN_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=")
@@ -215,10 +218,11 @@ def _feeds_shell(words):
     return any(_base(w) in SHELLS for w in words)
 
 
-def _segments(tokens, redirects=None):
+def _segments(tokens, redirects=None, piped=None):
     """Split tokens into simple commands. `redirects` collects (segment index, operator,
     target word) for every redirection, so a here-string fed to a shell and a command
-    substitution in a target can be scanned."""
+    substitution in a target can be scanned. `piped` collects the index of every
+    segment whose stdin is a pipe."""
     seg, out = [], []
     i = 0
     while i < len(tokens):
@@ -226,6 +230,8 @@ def _segments(tokens, redirects=None):
         if t in SEPARATORS:
             if seg:
                 out.append(seg)
+                if t in ("|", "|&") and piped is not None:
+                    piped.add(len(out))
             seg = []
         elif t in REDIRECTS:
             if seg and seg[-1].isdigit():
@@ -355,11 +361,13 @@ def tripo_calls(command, cwd=None, _tripo_in=None, _repeat=None):
         elif not quoted:
             for s in _scan(body, heredoc_body=True)[3]:  # an unquoted delimiter keeps $(...) live
                 calls += sub(s)
-    redirects = []
-    segments = _segments(tokens, redirects)
+    redirects, piped = [], set()
+    segments = _segments(tokens, redirects, piped)
     extra = {}  # segment index -> redirect targets
     for idx, op, word in redirects:
         extra.setdefault(idx, []).append(word)
+        if op in STDIN_REDIRECTS:
+            piped.add(idx)  # stdin comes from a file, heredoc or here-string
         if op == "<<<" and idx < len(segments) and _feeds_shell(segments[idx]):
             calls += sub(word)
     seen_subs = set()
@@ -404,7 +412,8 @@ def tripo_calls(command, cwd=None, _tripo_in=None, _repeat=None):
                 seen_subs.add(n)
                 found += sub(subs[n], cwd, repeat)
         if not header:
-            cwd, more, prog = _segment_calls(seg, cwd, _tripo_in, sub, repeat)
+            cwd, more, prog = _segment_calls(seg, cwd, _tripo_in, sub, repeat,
+                                             index in piped)
             found += more
         else:
             prog = None
@@ -425,8 +434,9 @@ def tripo_calls(command, cwd=None, _tripo_in=None, _repeat=None):
     return calls
 
 
-def _segment_calls(seg, cwd, tripo_in, sub, repeat=None):
-    """Calls in one simple command. Returns (cwd after it, calls, program name)."""
+def _segment_calls(seg, cwd, tripo_in, sub, repeat=None, stdin=False):
+    """Calls in one simple command (`stdin`: fed by a pipe or redirect). Returns (cwd
+    after it, calls, program name)."""
     argv, nested, script, rep = _unwrap(seg)
     repeat = repeat or (f"{rep} ile" if rep else None)
     calls = []
@@ -442,7 +452,7 @@ def _segment_calls(seg, cwd, tripo_in, sub, repeat=None):
         if target != "-":
             cwd = os.path.join(cwd or os.getcwd(), os.path.expanduser(target))
     elif _is_tripo_word(prog):
-        calls.append(_call(argv[1:], cwd))
+        calls.append(_call(argv[1:], cwd, stdin))
     elif prog.startswith("$") and len(prog) > 1:
         if tripo_in:
             shown = SUB_RE.sub("$(…)", prog)
@@ -456,10 +466,10 @@ def _segment_calls(seg, cwd, tripo_in, sub, repeat=None):
         for k in range(1, len(argv)):
             if _is_tripo_word(argv[k]):
                 args = argv[k + 1:]
-                calls.append(_call(args[1:] if args[:1] == ["--"] else args, cwd))
+                calls.append(_call(args[1:] if args[:1] == ["--"] else args, cwd, stdin))
                 break
             if _base(argv[k]) in SHELLS or argv[k] == "eval":
-                calls += _segment_calls(argv[k:], cwd, tripo_in, sub, repeat)[1]
+                calls += _segment_calls(argv[k:], cwd, tripo_in, sub, repeat, stdin)[1]
                 break
     for call in calls:
         if repeat and not call.get("repeat"):
@@ -698,8 +708,9 @@ def _direct_steps(group, sub, pos, opts):
     return [_step(what, kind, _opt(opts, "--model"), _direct_params(opts), inp)]
 
 
-def analyze(args):
-    """Classify the args after `tripo`: {"steps": [paid steps], "globals", "make", "label"}."""
+def analyze(args, stdin=False):
+    """Classify the args after `tripo`: {"steps": [paid steps], "globals", "make", "label"}.
+    `stdin`: the call reads a pipe, file, heredoc or here-string."""
     i, glob = 0, []
     while i < len(args) and args[i].startswith("-"):
         if args[i] in ("-h", "--help", "-v", "--version"):
@@ -715,7 +726,10 @@ def analyze(args):
     if "-h" in keys or ("--dry-run", True) in opts:
         return {"steps": []}
     out = {"globals": glob, "label": _opt(opts, "--name"), "make": None}
-    if cmd in FREE_TOP:
+    if cmd == "mcp" and stdin:
+        # JSON-RPC on stdin can call tripo_make: paid, price unknown (M9)
+        steps = [_step("mcp (stdin'den JSON-RPC, tripo_make çağırabilir)")]
+    elif cmd in FREE_TOP:
         steps = []
     elif cmd == "make":
         steps = _make_steps(pos, opts)
@@ -853,7 +867,7 @@ def decide(command, cwd=None):
             if call.get("repeat"):
                 many.append(f"{call['opaque']} ({call['repeat']})")
             continue
-        info = analyze(call["args"])
+        info = analyze(call["args"], call.get("stdin", False))
         for step in info["steps"]:
             found.append((step, info, call["cwd"]))
             why = step.get("multi") or call.get("repeat")

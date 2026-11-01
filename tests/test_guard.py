@@ -355,6 +355,21 @@ class Classification(unittest.TestCase):
         # bare `tripo ai` (interactive) is one window, not a deny
         self.assertAsk("tripo ai")
 
+    def test_mcp_with_stdin_asks(self):
+        # M9: JSON-RPC fed to `tripo mcp` can call tripo_make
+        for cmd in ["echo '{\"jsonrpc\":\"2.0\",\"method\":\"tools/call\"}' | tripo mcp",
+                    "cat req.jsonl | tripo mcp --toolset full",
+                    "tripo mcp < req.jsonl", "tripo mcp 0< req.jsonl",
+                    "tripo mcp <<'EOF'\n{\"method\":\"tools/call\"}\nEOF",
+                    "tripo mcp <<< '{\"method\":\"tools/call\"}'",
+                    "printf x |& rtk tripo mcp"]:
+            with self.subTest(cmd=cmd):
+                self.assertIn("mcp", self.assertAsk(cmd))
+        # without stdin it is the interactive server: free
+        self.assertSilent("tripo mcp")
+        self.assertSilent("tripo mcp --toolset full > log.txt 2>&1")
+        self.assertSilent("tripo mcp | tee log.txt")
+
     def test_option_values_are_not_flags(self):
         # '--name -h' names the task '-h'; it is not a help request
         self.assertAsk("tripo make x.png --model tripo-v3.1 --name -h")
