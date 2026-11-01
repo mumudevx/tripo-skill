@@ -17,7 +17,7 @@ Created once per game by `profile.py init`. `profile.py detect <project>` propos
 | `platforms` | list of `pc` / `mobile` | from the platforms in `export_presets.cfg` (Windows, macOS, Linux = `pc`; Android, iOS, Web = `mobile`); empty when there are no presets (ask) |
 | `art_style` | string or null | never detected (ask). Drives model choice (low poly: P1/P2 or v3.1 with `smart_low_poly`) |
 | `pbr` | bool | default `false` (tripo-cli 0.9.0 default); the user can turn it on |
-| `game_camera` | `{yaw, pitch, fov}` or null | never detected (ask). Decides which faces the player sees (detail budget, QA severity) |
+| `game_camera` | `{yaw, pitch, fov}` or null | never detected (ask). Decides which faces the player sees (detail budget, QA severity). Passed as `render_sheet.py --game-cam yaw,pitch,fov`, so it uses that convention: `yaw` degrees around the model from its front towards its right; `pitch` degrees **above** the horizon (positive = camera above the model looking down, -89..89; negative = below, looking up, which `init` warns about); `fov` vertical degrees (0-170). Example: a third-person camera slightly above and behind the player, looking at a prop's front: `{"yaw": 0, "pitch": 35, "fov": 70}` -> `--game-cam "0,35,70"` |
 | `texel_density` | number or null | never detected (ask). Texels per metre target for textures |
 | `budgets` | `{class: triangles}` | LOD0 triangles per class from `scripts/data/budgets.json`, for the profile's platforms; with several platforms the tightest wins. Answers overlay single classes |
 | `naming.model_pattern` | string or null | model file name pattern, e.g. `{id}.glb` (ask) |

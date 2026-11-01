@@ -7,6 +7,12 @@
 
 `detect` never writes. `init` merges the answers over the detected values, validates the result
 and writes it; it refuses to overwrite an existing profile without --force.
+
+game_camera {yaw, pitch, fov} uses render_sheet.py's convention (it is passed on as
+`--game-cam yaw,pitch,fov`): yaw = degrees around the model from its front towards its right,
+pitch = degrees ABOVE the horizon (positive: camera above the model, looking down; -89..89),
+fov = vertical degrees (0-170). A third-person camera slightly above: {"yaw": 0, "pitch": 35,
+"fov": 70}. A negative pitch (camera below, looking up) is legal but reported in `warnings`.
 Output: one JSON line. Exit codes: see common.py (2 usage/invalid answers, 3 input not found).
 
 Note: this file shadows the stdlib `profile` module whenever scripts/ is first on sys.path.
@@ -216,6 +222,10 @@ def validate(p: dict) -> None:
     need(cam is None or (isinstance(cam, dict) and set(cam) == {"yaw", "pitch", "fov"}
                          and all(_is_num(v) for v in cam.values())),
          "game_camera must be null or {yaw, pitch, fov} numbers")
+    if cam is not None:
+        need(-89 <= cam["pitch"] <= 89, "game_camera.pitch is degrees above the horizon, -89..89 "
+                                        "(positive = camera above, looking down)")
+        need(0 < cam["fov"] < 170, "game_camera.fov is vertical degrees, between 0 and 170")
     need(p["texel_density"] is None or (_is_num(p["texel_density"]) and p["texel_density"] > 0),
          "texel_density must be a positive number or null")
     need(isinstance(p["budgets"], dict) and p["budgets"] and all(
@@ -323,6 +333,11 @@ def main(argv):
         profile = apply_answers(profile, read_answers(a.answers))
     except AnswerError as e:
         common.fail(common.EXIT_USAGE, f"invalid answers: {e}")
+    cam = profile["game_camera"]
+    if cam is not None and cam["pitch"] < 0:
+        warnings.append(f"game_camera.pitch {cam['pitch']} puts the camera BELOW the horizon, looking up; "
+                        f"pitch is degrees above the horizon (a camera above looking down is positive, "
+                        f"e.g. 35)")
     write_profile(path, profile)
     common.emit({"ok": True, "project": str(root), "path": str(path), "profile": profile,
                  "unknown": unknown_keys(profile), "warnings": warnings})

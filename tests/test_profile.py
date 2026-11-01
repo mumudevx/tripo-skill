@@ -219,6 +219,22 @@ class InitTests(Base):
         code, out, _ = profile_cli("init", proj, "--answers", "/nonexistent/answers.json")
         self.assertEqual(code, 3)
 
+    def test_game_camera_pitch_sign(self):
+        # T17 F3: pitch is degrees above the horizon (render_sheet.py --game-cam convention)
+        proj = self.project(minimal_project())
+        for bad in ({"pitch": 95, "yaw": 0, "fov": 70}, {"pitch": 35, "yaw": 0, "fov": 0},
+                    {"pitch": -90, "yaw": 0, "fov": 70}):
+            code, out, _ = profile_cli("init", proj, "--answers", json.dumps({"game_camera": bad}))
+            self.assertEqual(code, 2, (bad, out))
+        code, out, _ = profile_cli("init", proj, "--answers",
+                                   json.dumps({"game_camera": {"yaw": 0, "pitch": -35, "fov": 70}}))
+        self.assertEqual(code, 0, out)
+        self.assertTrue(any("pitch" in w and "above the horizon" in w for w in out["warnings"]), out)
+        code, out, _ = profile_cli("init", proj, "--force", "--answers",
+                                   json.dumps({"game_camera": {"yaw": 0, "pitch": 35, "fov": 70}}))
+        self.assertEqual(code, 0, out)
+        self.assertFalse(any("pitch" in w for w in out["warnings"]), out)
+
     def test_init_is_deterministic_json(self):
         proj = self.project(minimal_project())
         profile_cli("init", proj, "--answers", json.dumps(ANSWERS))
