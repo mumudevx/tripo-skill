@@ -1,0 +1,26 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://main.gd" id="1_main"]
+
+[sub_resource type="BoxMesh" id="BoxMesh_crate"]
+size = Vector3(1, 0.5, 0.8)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_crate"]
+size = Vector3(1, 0.5, 0.8)
+
+[node name="Main" type="Node3D" unique_id=1310001]
+script = ExtResource("1_main")
+
+[node name="Crate" type="MeshInstance3D" parent="." unique_id=1310002]
+transform = Transform3D(0, 0, 1, 0, 1, 0, -1, 0, 0, 2, 0, -1)
+mesh = SubResource("BoxMesh_crate")
+
+[node name="Body" type="StaticBody3D" parent="Crate" unique_id=1310003]
+
+[node name="Shape" type="CollisionShape3D" parent="Crate/Body" unique_id=1310004]
+shape = SubResource("BoxShape3D_crate")
+
+[node name="socket_top" type="Marker3D" parent="Crate" unique_id=1310005]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.25, 0)
+
+[node name="Floor" type="Node3D" parent="." unique_id=1310006]

@@ -81,9 +81,27 @@ def load_profile(project: Path) -> dict:
     return data
 
 
+def model_dest(profile: dict, asset_id: str, asset_class: str) -> str:
+    """Project-relative path of an asset's model file: profile naming.root + naming.model_pattern
+    ({id} and {class} are filled in). Stops with exit 3 naming the unset key; never guesses."""
+    naming = profile.get("naming") or {}
+    for key in ("root", "model_pattern"):
+        if not naming.get(key):
+            fail(EXIT_NOT_FOUND, f"profile naming.{key} is not set; set it with "
+                                 f"`profile.py init <project> --answers '{{\"naming\": {{\"{key}\": ...}}}}' --force`")
+    name = naming["model_pattern"].replace("{id}", asset_id).replace("{class}", asset_class)
+    if "{" in name or "}" in name:
+        fail(EXIT_USAGE, f"profile naming.model_pattern {naming['model_pattern']!r} has a placeholder "
+                         f"other than {{id}} and {{class}}")
+    rel = Path(naming["root"]) / name
+    if rel.is_absolute() or ".." in rel.parts or rel.suffix.lower() != ".glb":
+        fail(EXIT_USAGE, f"model destination {rel} must be a relative .glb path inside the project")
+    return rel.as_posix()
+
+
 # ---------- <skill>/.state.json ----------
-# Shared by cli_watch.py (last_check, cli_version, golden_ok_for) and godot_place.py /
-# lessons.py ("projects"). Always read-modify-write; never replace the whole file.
+# Shared by cli_watch.py (last_check, cli_version, golden_ok_for), log_asset.py (reads
+# cli_version) and lessons.py ("projects"). Always read-modify-write; never replace the whole file.
 
 STATE_FILE = SKILL_ROOT / ".state.json"
 

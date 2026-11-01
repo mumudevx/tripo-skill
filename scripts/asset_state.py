@@ -109,6 +109,12 @@ def load_asset(project: Path, asset_id: str) -> dict:
     path = asset_path(project, asset_id)
     if not path.is_file():
         raise NotFound(f"no asset {asset_id!r} at {path}; create it with `asset_state.py new`")
+    return read_asset_file(path)
+
+
+def read_asset_file(path: Path) -> dict:
+    """An asset/1 file by path. Invalid JSON exits 4, another schema exits 5 (see load_asset)."""
+    path = Path(path)
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except ValueError as e:
