@@ -69,6 +69,68 @@ def _lex(command):
         raise ParseError(str(e)) from None
 
 
+HEREDOC_DELIM_RE = re.compile(r"""(-?)[ \t]*(?:'([^'\n]*)'|"([^"\n]*)"|(\\?)([^\s;&|<>()'"`]+))""")
+
+
+def _heredocs(command):
+    """Cut heredoc bodies out of `command`, tracking quotes so a '<<' inside a string is not
+    an operator. Returns (command without bodies, [(body, quoted delimiter, operator line)]).
+    An unterminated body runs to the end, as in the shell."""
+    out, bodies, pending = [], [], []
+    i, n, q = 0, len(command), None
+    while i < n:
+        c = command[i]
+        if q:
+            if c == "\\" and q == '"':
+                out.append(command[i:i + 2])
+                i += 2
+                continue
+            q = None if c == q else q
+        elif c == "\\":
+            out.append(command[i:i + 2])
+            i += 2
+            continue
+        elif c in "'\"":
+            q = c
+        elif command.startswith("<<<", i):
+            out.append("<<<")
+            i += 3
+            continue
+        elif command.startswith("<<", i):
+            m = HEREDOC_DELIM_RE.match(command, i + 2)
+            if m:
+                quoted = m.group(2) is not None or m.group(3) is not None or bool(m.group(4))
+                delim = next(g for g in (m.group(2), m.group(3), m.group(5)) if g is not None)
+                pending.append((m.group(1) == "-", delim, quoted))
+                out.append(command[i:m.end()])
+                i = m.end()
+                continue
+        elif c == "\n" and pending:
+            text = "".join(out)
+            line = text[text.rfind("\n") + 1:]
+            out.append("\n")
+            j = i + 1
+            for strip_tabs, delim, quoted in pending:
+                body = []
+                while j < n:
+                    k = command.find("\n", j)
+                    k = n if k == -1 else k
+                    ln, j = command[j:k], k + 1
+                    if (ln.lstrip("\t") if strip_tabs else ln) == delim:
+                        break
+                    body.append(ln)
+                bodies.append(("\n".join(body), quoted, line))
+            pending, i = [], j
+            continue
+        out.append(c)
+        i += 1
+    return "".join(out), bodies
+
+
+def _feeds_shell(words):
+    return any(os.path.basename(w) in SHELLS for w in words)
+
+
 def _substitutions(token):
     """Bodies of $(...) and `...` inside one word (double quotes keep them live)."""
     out = []
@@ -85,7 +147,9 @@ def _substitutions(token):
     return out
 
 
-def _segments(tokens):
+def _segments(tokens, herestrings=None):
+    """Split tokens into simple commands. `herestrings` collects (segment index, word) for
+    every '<<<' so a here-string fed to a shell can be scanned."""
     seg, out = [], []
     i = 0
     while i < len(tokens):
@@ -97,6 +161,8 @@ def _segments(tokens):
         elif t in REDIRECTS:
             if seg and seg[-1].isdigit():
                 seg.pop()  # fd number of 2>&1
+            if t == "<<<" and herestrings is not None and i + 1 < len(tokens):
+                herestrings.append((len(out), tokens[i + 1]))
             i += 1  # the target
         else:
             seg.append(t)
@@ -163,12 +229,24 @@ def _unwrap(argv):
 
 def tripo_calls(command, cwd=None):
     """[(args after the tripo program, effective cwd)] for every tripo call in `command`."""
+    command, heredocs = _heredocs(command)
     tokens = _lex(command)
     calls = []
+    for body, quoted, line in heredocs:
+        if _feeds_shell(re.split(r"[\s|;&()]+", line)):
+            calls += tripo_calls(body, cwd)  # the shell runs the body
+        elif not quoted:
+            for sub in _substitutions(body):  # an unquoted delimiter keeps $(...) live
+                calls += tripo_calls(sub, cwd)
     for tok in tokens:
         for body in _substitutions(tok):
             calls += tripo_calls(body, cwd)
-    for seg in _segments(tokens):
+    herestrings = []
+    segments = _segments(tokens, herestrings)
+    for idx, word in herestrings:
+        if idx < len(segments) and _feeds_shell(segments[idx]):
+            calls += tripo_calls(word, cwd)
+    for seg in segments:
         argv, nested = _unwrap(seg)
         for body in nested:
             calls += tripo_calls(body, cwd)

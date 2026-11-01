@@ -166,6 +166,26 @@ class Classification(unittest.TestCase):
             with self.subTest(cmd=cmd):
                 self.assertSilent(cmd)
 
+    def test_heredoc_text_is_not_a_command(self):
+        for cmd in ["cat >> notes.md <<'EOF'\ntripo make x.png --model tripo-v3.1\ntripo was missing\nEOF\ngit add notes.md",
+                    'cat > a.md <<"EOF"\ntripo redo @a\nEOF',
+                    "cat > a.md <<-EOF\n\ttripo make x.png\n\tEOF",
+                    "python3 - <<EOF\nprint('tripo make x.png')\nEOF",
+                    "cat <<A > a.md; cat <<B > b.md\ntripo redo\nA\ntripo make x\nB"]:
+            with self.subTest(cmd=cmd):
+                self.assertSilent(cmd)
+
+    def test_heredoc_live_parts_still_caught(self):
+        # a heredoc fed to a shell runs its body
+        self.assertAsk("bash <<'EOF'\ntripo make x.png --model tripo-v3.1\nEOF")
+        self.assertAsk("cat <<EOF | sh\ntripo redo @a\nEOF")
+        # an unquoted delimiter keeps command substitution live
+        self.assertAsk("cat > a.md <<EOF\nid: $(tripo make x.png --model tripo-v3.1)\nEOF")
+        # commands after the heredoc are scanned
+        self.assertAsk("cat > a.md <<'EOF'\ntext\nEOF\ntripo make x.png --model tripo-v3.1")
+        # here-strings are not heredocs
+        self.assertAsk("bash <<< 'tripo redo @a'")
+
     def test_non_bash_tool_silent(self):
         self.assertIsNone(decision("tripo make x.png --model tripo-v3.1", tool="Write"))
 
