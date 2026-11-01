@@ -323,6 +323,41 @@ class AssetStateTests(Base):
             self.assertFalse(out["ok"])
         self.assertEqual(self.asset_path().read_text(), before)  # a refused update writes nothing
 
+    def test_user_supplied_raw_chain_entry(self):
+        # T17 F2: a raw result the user hands over is recorded without a guessed task id or a ledger row
+        self.init_profile()
+        asset_cli("new", self.proj, "chest", "--class", "large_prop")
+        entry = {"label": "chest-generate-v01", "kind": "generate", "source": "user-supplied",
+                 "file": "raw/chest-generate-v01/tripo-out/chest.glb"}
+        code, out, _ = asset_cli("update", self.proj, "chest", "--append", "chain=" + json.dumps(entry))
+        self.assertEqual(code, 0, out)
+        got = out["asset"]["chain"][0]
+        self.assertEqual(got, {**entry, "task_id": None, "model": None, "credits": 0,
+                               "status": "done", "params": {}})
+        # still a valid tripo_plan chain (extra keys are ignored there)
+        self.assertIn(got["kind"], tripo_plan.KINDS)
+        # no ledger row for it
+        code, out, _ = asset_cli("ledger", self.proj, "--add", json.dumps(
+            {"asset": "chest", "label": "chest-generate-v01", "kind": "generate", "estimate": 0}))
+        self.assertEqual(code, 2, out)
+        self.assertIn("user-supplied", out["error"])
+        self.assertEqual(asset_cli("ledger", self.proj)[1]["rows"], [])
+        # a later task id from the user is accepted through --chain-update
+        code, out, _ = asset_cli("update", self.proj, "chest", "--chain-update",
+                                 "chest-generate-v01=" + json.dumps({"task_id": "t-9"}))
+        self.assertEqual(code, 0, out)
+        self.assertEqual(out["asset"]["chain"][0]["source"], "user-supplied")
+        before = self.asset_path("chest").read_text()
+        for bad in ({"label": "b1", "kind": "generate", "source": "user-supplied"},           # no file
+                    {"label": "b2", "kind": "generate", "source": "user-supplied", "file": "x.glb",
+                     "credits": 30},
+                    {"label": "b3", "kind": "generate", "source": "user-supplied", "file": "x.glb",
+                     "status": "planned"},
+                    {"label": "b4", "kind": "generate", "source": "elsewhere", "file": "x.glb"}):
+            code, out, _ = asset_cli("update", self.proj, "chest", "--append", "chain=" + json.dumps(bad))
+            self.assertEqual(code, 2, (bad, out))
+        self.assertEqual(self.asset_path("chest").read_text(), before)
+
     def test_duplicate_chain_label_refused(self):
         self.init_profile()
         asset_cli("new", self.proj, "crate", "--class", "small_prop")

@@ -14,6 +14,10 @@ estimate/result). A file with another schema is never touched or migrated silent
 
 chain entries are valid input for `tripo_plan.py --chain`: kind uses the tripo_plan.KINDS spelling
 (rig_check, never rig-check) and params is the dict that was passed to the planner.
+A raw result the user supplied (no paid step in this session) is a chain entry with
+"source": "user-supplied": it needs "file" (the frozen copy under raw/<label>/), its status is
+"done", its credits 0 (null is filled in as 0), and task_id stays null unless the user gave it.
+It never gets a ledger row. Entries without "source" are Tripo steps run by the skill.
 Output: one JSON line. Exit codes: see common.py.
 """
 import argparse
@@ -33,6 +37,8 @@ ID_RE = re.compile(r"[a-z0-9][a-z0-9_-]*")
 PHASES = ("brief", "preflight", "plan", "generate", "qa", "fix", "rig", "place", "lessons", "done")
 CHAIN_STATUSES = ("planned", "running", "done", "failed")
 CHAIN_KEYS = ("label", "task_id", "kind", "model", "credits", "status", "params")
+CHAIN_OPTIONAL = ("source", "file")  # only present when given (user-supplied raw results)
+CHAIN_SOURCES = ("tripo", "user-supplied")
 SETTABLE = ("phase", "placeholder", "brief", "recipe")
 APPENDABLE = ("refs", "qa", "decisions", "chain")
 LEDGER_KEYS = ("ts", "asset", "label", "kind", "estimate", "consumed", "task_id")
@@ -86,9 +92,10 @@ def chain_entry(raw) -> dict:
     """A validated, fully populated chain entry (defaults filled, kind normalised)."""
     if not isinstance(raw, dict):
         raise UsageError("a chain entry must be a JSON object")
-    bad = sorted(set(raw) - set(CHAIN_KEYS))
+    bad = sorted(set(raw) - set(CHAIN_KEYS) - set(CHAIN_OPTIONAL))
     if bad:
-        raise UsageError(f"unknown chain keys: {', '.join(bad)} (allowed: {', '.join(CHAIN_KEYS)})")
+        raise UsageError(f"unknown chain keys: {', '.join(bad)} "
+                         f"(allowed: {', '.join(CHAIN_KEYS + CHAIN_OPTIONAL)})")
     if not isinstance(raw.get("label"), str) or not raw["label"]:
         raise UsageError("a chain entry needs a label")
     e = {"label": raw["label"], "task_id": raw.get("task_id"), "kind": kind_of(raw.get("kind")),
@@ -102,6 +109,25 @@ def chain_entry(raw) -> dict:
         raise UsageError(f"status must be one of {', '.join(CHAIN_STATUSES)} (got {e['status']!r})")
     if not isinstance(e["params"], dict):
         raise UsageError("params must be an object (the dict passed to tripo_plan)")
+    if "source" in raw:
+        if raw["source"] not in CHAIN_SOURCES:
+            raise UsageError(f"source must be one of {', '.join(CHAIN_SOURCES)} (got {raw['source']!r})")
+        e["source"] = raw["source"]
+    if "file" in raw:
+        if not (isinstance(raw["file"], str) and raw["file"]):
+            raise UsageError("file must be a path string (the frozen raw copy)")
+        e["file"] = raw["file"]
+    if e.get("source") == "user-supplied":
+        if "file" not in e:
+            raise UsageError("a user-supplied chain entry needs file: the frozen copy under raw/<label>/")
+        if e["status"] == "planned" and "status" not in raw:
+            e["status"] = "done"
+        if e["status"] != "done":
+            raise UsageError("a user-supplied chain entry is a finished result: status must be done")
+        if e["credits"] is None:
+            e["credits"] = 0
+        if e["credits"] != 0:
+            raise UsageError("a user-supplied chain entry cost nothing in this session: credits must be 0")
     return e
 
 
@@ -282,6 +308,10 @@ def ledger(a) -> dict:
             raise UsageError("task_id must be a string or null")
         if not asset_path(root, raw.get("asset")).is_file():
             raise NotFound(f"ledger row names asset {raw.get('asset')!r}, which has no asset file")
+        chain = load_asset(root, raw["asset"]).get("chain", [])
+        if any(e.get("label") == raw["label"] and e.get("source") == "user-supplied" for e in chain):
+            raise UsageError(f"{raw['label']!r} is a user-supplied raw result: no credits were spent "
+                             f"in this session, so it gets no ledger row")
         row = {"ts": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
                "asset": raw["asset"], "label": raw["label"], "kind": kind_of(raw.get("kind")),
                "estimate": raw["estimate"], "consumed": consumed, "task_id": raw.get("task_id")}

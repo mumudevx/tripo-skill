@@ -42,10 +42,11 @@ Budget classes: `small_prop`, `large_prop`, `env_piece`, `weapon_held`, `npc`, `
  "phase": "brief|preflight|plan|generate|qa|fix|rig|place|lessons|done",
  "placeholder": {"scene": "res://...", "node": "..."} | null,
  "brief": {...}, "refs": ["path", ...],
- "chain": [{"label", "task_id", "kind", "model", "credits", "status", "params"}],
+ "chain": [{"label", "task_id", "kind", "model", "credits", "status", "params"[, "source", "file"]}],
  "qa": [...], "recipe": "path to the fix recipe" | null, "decisions": [...]}
 ```
 
+- A raw result the user supplied (no paid step in this session) adds `"source": "user-supplied"` and `"file"` (the frozen copy under `raw/<label>/`) to its chain entry: `status` is `done`, `credits` is `0`, `task_id` and `model` stay `null` unless the user states them (never inferred from node or file names), and it gets no ledger row (`ledger --add` refuses that label). Entries without `source` are Tripo steps the skill ran.
 - `chain[].kind` uses the `tripo_plan.KINDS` spelling (`rig_check`, never `rig-check`; `asset_state.py` normalises the hyphen). `params` is the dict that was passed to `tripo_plan.py`. With those two, the asset file is a valid `tripo_plan.py --chain` input. `status` is `planned`, `running`, `done` or `failed`; `task_id` and `credits` stay `null` until known.
 - `asset_state.py get` on a file with another schema exits 5. `"migrate": true` means older (migrate it deliberately; nothing is rewritten automatically); `"migrate": false` means newer than this skill.
 - Operations: `new` (needs a profile), `get`, `update` (`--phase`, `--set KEY=JSON` for `phase`, `placeholder`, `brief.*`, `recipe`; `--append KEY=JSON` for `refs`, `qa`, `decisions`, `chain`; `--chain-update LABEL=JSON`). A failed operation writes nothing.

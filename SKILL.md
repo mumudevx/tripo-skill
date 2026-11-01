@@ -43,6 +43,8 @@ Order rule: **cloud first, then local.** Every paid Tripo step (each its own com
 
 Checking a GLB/FBX the user hands over (no placeholder): run phases 5 and 6 on that file; the budget comes from `profile.json` `budgets[class]` when inside a project, else ask for the class once.
 
+Placeholder **and** a raw generation result the user already has (made outside this session): phases 1-2 as usual; phase 3 preflight runs but is **report-only** (findings go into `decisions` and become QA expectations; no image fix is asked for, no credit is at stake). Phase 4 is replaced by freezing the file: copy it unchanged to `raw/<label>/` (label `<id>-generate-vNN`), make it read-only, and append the chain entry `{"label", "kind": "generate", "source": "user-supplied", "file": "raw/<label>/<name>", "task_id": null, "model": null}` (`status` becomes `done`, `credits` 0). Fill `task_id` or `model` only when the user states them; **never infer a task id** from a GLB node name (`tripo_node_<uuid>`) or a file name. No ledger row (`asset_state.py ledger --add` refuses one for that label). Then phases 5-9.
+
 ### Phase notes
 
 - **1 Profile.** `profile.py detect <project>` proposes everything it can read from the project (engine, binary, platforms, art source, asset_log format, placement mode, check commands). Ask only for `unknown`, in one message, then `profile.py init <project> --answers '<json>'`. Never re-ask what the profile answers.
