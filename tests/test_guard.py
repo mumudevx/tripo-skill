@@ -335,6 +335,45 @@ class Classification(unittest.TestCase):
                 # these mention tripo only through the path: still silent
                 self.assertIsNone(decision(cmd + " # tripo", cwd=str(d)))
 
+    def test_shell_script_path_through_skill_folder_silent(self):
+        # R4: export.py writes the skill's bl.py path (it contains "tripo") into
+        # export.sh; only a tripo command word in a script asks
+        d = tmpdir("tripo-guard-export-")
+        self.addCleanup(shutil.rmtree, d, True)
+        bl = "/Users/me/.claude/skills/tripo-game-assets/scripts/bl.py"
+        (d / "work").mkdir()
+        (d / "work" / "export.sh").write_text(
+            "#!/bin/sh\n"
+            "# Re-export the edited .blend for the engine (written by export.py).\n"
+            "set -e\n"
+            'BLENDER="${BLENDER:-/Applications/Blender.app/Contents/MacOS/Blender}"\n'
+            "export BLENDER\n"
+            f"exec python3 {bl} export.py -- /p/tripo-demo/art_src/props/crate/work/"
+            "crate-v02.blend --out-model /p/tripo-demo/game/models/crate.glb --engine godot\n")
+        (d / "blender.sh").write_text(
+            '#!/bin/sh\n"$BLENDER" --background --python '
+            "/x/tripo-skill/scripts/blender/export.py\n")
+        (d / "note.sh").write_text("#!/bin/sh\n# later: tripo make x.png\necho done\n")
+        for cmd in ["bash work/export.sh", "sh work/export.sh", "bash blender.sh",
+                    "bash note.sh"]:
+            with self.subTest(cmd=cmd):
+                self.assertIsNone(decision(cmd, cwd=str(d)), cmd)
+        scripts = {"make.sh": "#!/bin/sh\nset -e\ntripo make x.png --model tripo-v3.1\n",
+                   "abs.sh": f"#!/bin/sh\npython3 {bl} x\n/opt/bin/TRIPO redo @a\n",
+                   "runner.sh": "#!/bin/sh\nmise exec -- tripo redo @a\n",
+                   "var.sh": '#!/bin/sh\nT="$(command -v tripo)"\n"$T" make x.png\n',
+                   "free.sh": "#!/bin/sh\ntripo balance --json\n",
+                   "nested.sh": "#!/bin/sh\nbash make.sh\n# via tripo-game-assets/x\n",
+                   "self.sh": "#!/bin/sh\n. ./self.sh\ntripo redo @a\n"}
+        for name, text in scripts.items():
+            (d / name).write_text(text)
+        for name in scripts:
+            with self.subTest(script=name):
+                d_ = decision(f"bash {name}", cwd=str(d))
+                self.assertIsNotNone(d_, name)
+                self.assertEqual(d_[0], "ask", d_)
+                self.assertIn(name, d_[1])
+
     # ---- I1: one approval must not cover many paid tasks ----
 
     def test_loop_bodies_denied(self):

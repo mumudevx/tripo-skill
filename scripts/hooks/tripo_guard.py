@@ -7,7 +7,8 @@ pipes, `bash -c`, `$(…)`, `npx tripo-cli` and a path to the binary. Names are
 case-folded (APFS runs `TRIPO`). Fail closed: a program the guard does not know
 (`mise exec`, `npm exec`, `find -exec`, `caffeinate`, ...) is analysed from its first
 tripo word unless it is a read-only tool (READ_ONLY); a `$VAR` program in a command
-that mentions tripo, or a shell script file that mentions tripo, asks.
+that mentions tripo, or a shell script file that calls tripo (a path through a
+folder named like tripo does not count), asks.
 
   no tripo call, or only free ones   -> exit 0, no output (other hooks decide)
   exactly one paid step              -> permissionDecision "ask" with step, estimate,
@@ -331,14 +332,39 @@ def _unwrap(argv):
     return argv[i:], nested, None, rep
 
 
+# a tripo word that is a directory component (`.../tripo-skill/scripts/bl.py`,
+# `tripo-game-assets/x`): a path through the skill folder, not a tripo program
+TRIPO_DIR_RE = re.compile(r"[^\s'\"/]*tripo[^\s'\"/]*/", re.I)
+SCRIPT_DEPTH = 8
+_scripts_open = []  # scripts being scanned now: a script that runs itself stops here
+
+
 def _script_mentions_tripo(path, cwd):
-    """True when `path` (resolved against cwd) is a readable file that mentions tripo."""
-    full = os.path.join(cwd or os.getcwd(), os.path.expanduser(path))
+    """True when `path` (resolved against cwd) is a readable file that calls tripo:
+    a tripo command word, a runner the fallback catches, or a `$VAR` program while
+    the text names tripo outside a directory component (R4). A path through a
+    folder named like tripo (the skill's own bl.py) alone does not count."""
+    full = os.path.realpath(os.path.join(cwd or os.getcwd(), os.path.expanduser(path)))
     try:
         with open(full, "rb") as f:
-            return b"tripo" in f.read(SCRIPT_READ_LIMIT).lower()
+            raw = f.read(SCRIPT_READ_LIMIT)
     except OSError:
         return False
+    if b"tripo" not in raw.lower():
+        return False
+    if full in _scripts_open:
+        return False  # the outer scan of this file covers it
+    if len(_scripts_open) >= SCRIPT_DEPTH:
+        return True
+    text = raw.decode("utf-8", "replace")
+    named = "tripo" in TRIPO_DIR_RE.sub("/", text).lower()
+    _scripts_open.append(full)
+    try:
+        return bool(tripo_calls(text, cwd, named))
+    except ParseError:
+        return named
+    finally:
+        _scripts_open.pop()
 
 
 def _read_only(argv):
@@ -357,7 +383,7 @@ def _opaque(why):
 def tripo_calls(command, cwd=None, _tripo_in=None, _repeat=None):
     """Every tripo call in `command`: [{"args": args after the tripo program, "cwd",
     "repeat"}], plus {"opaque": reason, "repeat"} for a program the guard cannot see
-    through (a `$VAR` program or a shell script that mentions tripo): those ask, never
+    through (a `$VAR` program or a shell script that calls tripo): those ask, never
     stay silent. "repeat" names why the call may run many times (a loop body, xargs,
     find -exec, a function called twice) or is None."""
     if _tripo_in is None:
