@@ -9,6 +9,7 @@ import subprocess
 import sys
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from tests.util import SCRIPTS, skip_if_missing, tmpdir
 
@@ -52,6 +53,35 @@ class Scratch(unittest.TestCase):
                 "params": params or {}}
         step.update(extra)
         return step
+
+
+class NoGenerationStep(Scratch):
+    """M11: a dry-run without the step's payload is an error, not a skipped B10 check."""
+
+    def test_generate_without_generation_step_errors(self):
+        dry = {"dry_run": True, "valid": True, "steps": [], "warnings": [], "errors": []}
+        with mock.patch.object(tripo_plan, "dry_run", return_value=(dry, None)), \
+                mock.patch.object(tripo_plan, "wire_id", return_value="v3.1-20260211"):
+            r = tripo_plan.check(self.gen())
+        self.assertTrue(any("dry-run planned no generation step" in e for e in r["errors"]), r["errors"])
+
+    def test_then_step_without_its_step_errors(self):
+        dry = {"dry_run": True, "valid": True, "warnings": [], "errors": [],
+               "steps": [{"name": "import", "payload": {"input": "<upload:x.glb>"}}]}
+        step = {"kind": "decimate", "label": "x-decimate-v01", "input": {"file": str(self.glb)},
+                "model": "v3.0", "params": {"face_limit": 3000}}
+        with mock.patch.object(tripo_plan, "dry_run", return_value=(dry, None)), \
+                mock.patch.object(tripo_plan, "wire_id", return_value="v3.0-20250812"):
+            r = tripo_plan.check(step)
+        self.assertTrue(any("dry-run planned no 'decimate' step" in e for e in r["errors"]), r["errors"])
+
+    def test_matching_payload_passes(self):
+        dry = {"dry_run": True, "valid": True, "warnings": [], "errors": [],
+               "steps": [{"name": "generate", "payload": {"model": "v3.1-20260211"}}]}
+        with mock.patch.object(tripo_plan, "dry_run", return_value=(dry, None)), \
+                mock.patch.object(tripo_plan, "wire_id", return_value="v3.1-20260211"):
+            r = tripo_plan.check(self.gen())
+        self.assertEqual([e for e in r["errors"] if "payload" in e or "planned no" in e], [])
 
 
 class DryRunRules(Scratch):

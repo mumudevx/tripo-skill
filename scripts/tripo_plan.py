@@ -489,6 +489,11 @@ def check(step, chain=None):
         if wire is None:
             errors.append(f"model {s['model']!r} is not a {MODEL_CAPABILITY[kind]} model "
                           "in `tripo models --json`")
+        elif payload is None and dry is not None:
+            # without the step's payload the B10 check cannot run: never pass silently (M11)
+            what = "generation" if kind == "generate" else f"{THEN_STEP.get(kind, kind)!r}"
+            errors.append(f"dry-run planned no {what} step: the payload model could not be checked "
+                          f"against {wire!r} ({s['model']}, B10)")
         elif payload is not None and payload.get("model") != wire:
             errors.append(f"payload model {payload.get('model')!r} is not the requested "
                           f"{wire!r} ({s['model']})")
