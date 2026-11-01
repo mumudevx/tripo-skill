@@ -33,7 +33,9 @@ rig_accept  skeleton count, bones, single root, max skin influences, animations 
 Scene swap (spec 16.1, K6): the placeholder node keeps its path, name, type, unique_id, script,
 transform, collision and socket children. When it is a MeshInstance3D, its mesh (and skin and
 material overrides) moves to a new hidden child `<name>_placeholder`; when it is a container,
-its direct visual children are hidden and renamed `<child>_placeholder`. Nothing is deleted.
+its direct visual children are hidden and renamed `<child>_placeholder` (the plan warns about
+every project .gd that reaches one of them by name: `$Child`, `get_node("Child")`, `%Child`).
+Nothing is deleted.
 The model goes in as a child scene instance `Model`, base centre on the placeholder's base centre.
 
 Godot binary: --godot, else $GODOT, else profile engine.binary, else what profile.py detects.
@@ -296,9 +298,11 @@ def transform_text(basis_diag, origin) -> str:
     return "Transform3D(" + ", ".join(_num(v) for v in vals) + ")"
 
 
-def swap_scene(text: str, scene_label: str, node_path: str, res_path: str, model_origin, model_scale):
+def swap_scene(text: str, scene_label: str, node_path: str, res_path: str, model_origin, model_scale,
+               renamed=None):
     """(new text, warnings) for the placeholder swap. Raises PlaceError when the node cannot be
-    swapped safely."""
+    swapped safely. A list passed as `renamed` receives (old name, new name) of every child the
+    container swap renames."""
     scene = Scene.parse(text)
     ph = scene.node(node_path)
     if ph is None:
@@ -346,6 +350,8 @@ def swap_scene(text: str, scene_label: str, node_path: str, res_path: str, model
             new_path = f"{v.parent}/{new_name}" if v.parent != "." else new_name
             v.section.set_attr("name", new_name)
             v.section.set_prop("visible", "false")
+            if renamed is not None:
+                renamed.append((old_path.rsplit("/", 1)[-1], new_name))
             for n in scene.nodes():
                 if n.parent and in_subtree(n.parent, old_path):
                     n.section.set_attr("parent", new_path + n.parent[len(old_path):])
@@ -368,6 +374,40 @@ def swap_scene(text: str, scene_label: str, node_path: str, res_path: str, model
     anchor = max((n.section for n in subtree), key=scene.sections.index)
     scene.insert_after(anchor, new_sections)
     return scene.render(), warnings
+
+
+SCRIPT_SKIP_DIRS = {".godot", ".git", ".claude", ".import", "addons"}
+SCRIPT_HITS_SHOWN = 5
+
+
+def script_refs(root: Path, renamed) -> list:
+    """Warnings for project .gd scripts that reach a renamed child by name: `$Old`, `$"Old"`,
+    `$Path/Old`, `get_node("Old")` / `get_node_or_null("…/Old")` and `%Old`. A grep, not a parse:
+    each hit is a place to check, not proof of a break."""
+    if not renamed:
+        return []
+    files = []
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = sorted(d for d in dirnames if d not in SCRIPT_SKIP_DIRS)
+        files += [Path(dirpath, f) for f in sorted(filenames) if f.endswith(".gd")]
+    out = []
+    for old, new in renamed:
+        n = re.escape(old)
+        pat = re.compile(rf'\$"?(?:[\w/.]*/)?{n}(?![\w])|%"?{n}(?![\w])'
+                         rf'|get_node(?:_or_null)?\(\s*["\'](?:[^"\'\n]*/)?{n}["\'/]')
+        hits = []
+        for f in files:
+            try:
+                lines = f.read_text(encoding="utf-8", errors="replace").splitlines()
+            except OSError:
+                continue
+            hits += [f"{f.relative_to(root).as_posix()}:{i}" for i, ln in enumerate(lines, 1) if pat.search(ln)]
+        if hits:
+            more = f" and {len(hits) - SCRIPT_HITS_SHOWN} more" if len(hits) > SCRIPT_HITS_SHOWN else ""
+            out.append(f"script(s) reach {old!r} by name ({', '.join(hits[:SCRIPT_HITS_SHOWN])}{more}); the swap "
+                       f"renames it to {new!r}, so those lookups would fail: update the scripts (or point them at "
+                       f"Model) when applying")
+    return out
 
 
 # ---------- .import ----------
@@ -607,8 +647,9 @@ def build_plan(a, root, profile, asset, glb) -> dict:
         if mode == "scene_swap":
             path = scene_file(root, scene_res)
             old = path.read_text(encoding="utf-8")
-            new, w = swap_scene(old, scene_res, node, copy_res, origin, inv)
-            warnings += w
+            renamed = []
+            new, w = swap_scene(old, scene_res, node, copy_res, origin, inv, renamed=renamed)
+            warnings += w + script_refs(root, renamed)
             plan["scene_diff"] = unified_diff(old, new, scene_res)
             plan["_scene_text"] = (path, new)
     else:

@@ -322,6 +322,19 @@ class GodotPlace(unittest.TestCase):
         self.assertIn("Model", new)
         self.assertIn('metadata/kind = "furniture"', new["."]["_body"])
 
+    def test_plan_warns_about_scripts_using_renamed_children(self):
+        # M10: the container swap renames Seat/Leg; a game script that uses $Seat is named
+        self.make_profile()
+        asset = self.make_asset(asset_id="stool", scene="res://stool.tscn", node=".")
+        (self.proj / "stool.gd").write_text("extends Node3D\n@onready var seat := $Seat\n")
+        code, out = run(PLACE, "plan", self.proj, asset, box_glb(self.tmp / "stool.glb", (0.6, 0.5, 0.6)),
+                        env=self.env)
+        self.assertEqual(code, 0, out)
+        hits = [w for w in out["warnings"] if w.startswith("script(s) reach")]
+        self.assertEqual(len(hits), 1, out["warnings"])
+        self.assertIn("stool.gd:2", hits[0])
+        self.assertIn("Seat_placeholder", hits[0])
+
     def test_apply_twice_is_idempotent(self):
         self.make_profile()
         asset = self.make_asset()
@@ -511,6 +524,38 @@ class SwapUnit(unittest.TestCase):
         self.assertIn('from="Seat_placeholder"', new)
         self.assertNotIn("unique_id", new)  # the scene does not use them, so none are invented
         self.assertTrue(new.endswith('method="_on"]\n'))
+
+
+class ScriptRefs(unittest.TestCase):
+    """M10: renamed children named in game scripts (no Godot)."""
+
+    def test_script_refs(self):
+        d = tmpdir("script-refs-")
+        self.addCleanup(shutil.rmtree, d, True)
+        (d / "scripts").mkdir()
+        (d / "scripts" / "stool.gd").write_text(
+            'extends Node3D\n@onready var seat = $Seat\nfunc _ready():\n\tget_node("Body/Leg").hide()\n'
+            '\tvar s2 = %Seat\n\tvar ok = $Seating\n\tprint("Seat")\n')
+        (d / ".godot").mkdir()
+        (d / ".godot" / "cache.gd").write_text("var x = $Seat\n")       # editor cache: ignored
+        w = godot_place.script_refs(d, [("Seat", "Seat_placeholder"), ("Leg", "Leg_placeholder"),
+                                        ("Back", "Back_placeholder")])
+        self.assertEqual(len(w), 2, w)
+        self.assertIn("'Seat'", w[0])
+        self.assertIn("scripts/stool.gd:2", w[0])
+        self.assertIn("scripts/stool.gd:5", w[0])
+        self.assertNotIn("stool.gd:6", w[0])      # $Seating is another node
+        self.assertNotIn("stool.gd:7", w[0])      # a plain string is not a lookup
+        self.assertNotIn("cache.gd", w[0])
+        self.assertIn("'Seat_placeholder'", w[0])
+        self.assertIn("scripts/stool.gd:4", w[1])
+        self.assertEqual(godot_place.script_refs(d, []), [])
+
+    def test_swap_reports_renamed(self):
+        renamed = []
+        godot_place.swap_scene((MIN_PROJECT / "stool.tscn").read_text(), "res://stool.tscn", ".",
+                               "res://m/stool.glb", (0, 0, 0), (1, 1, 1), renamed=renamed)
+        self.assertEqual(renamed, [("Seat", "Seat_placeholder"), ("Leg", "Leg_placeholder")])
 
 
 class TscnRoundTrip(unittest.TestCase):
