@@ -1,5 +1,7 @@
 # Project state files: profile.json, assets/<id>.json, ledger.jsonl
 
+When to read this: phase 1 (profile setup, when `profile.json` is missing) and whenever the skill resumes an asset or records a paid step.
+
 All three live in `<project>/.claude/tripo/` (data only, small, safe to commit). Written and read only through `scripts/profile.py` and `scripts/asset_state.py`; never edit them by hand while a session is running.
 
 ## profile.json (`"schema": "profile/1"`)
@@ -50,4 +52,4 @@ Budget classes: `small_prop`, `large_prop`, `env_piece`, `weapon_held`, `npc`, `
 
 ## ledger.jsonl
 
-Append-only, one JSON object per line: `{"ts", "asset", "label", "kind", "estimate", "consumed", "task_id"}`. Write the row with `consumed: null` when the step is planned and append a second row with the same `asset` and `label` once the real cost is known; the latest row per `(asset, label)` wins in the totals that `asset_state.py ledger <project> [--asset ID]` prints. `ledger --add <json>` appends (the `ts` is added by the script).
+Append-only, one JSON object per line: `{"ts", "asset", "label", "kind", "estimate", "consumed", "task_id"}`. Write the row with `consumed: null` when the step is planned and append a second, complete row (same `asset`, `label`, `kind` and `estimate`, plus the real `consumed` and `task_id`) once the real cost is known; the latest row per `(asset, label)` wins in the totals that `asset_state.py ledger <project> [--asset ID]` prints. `ledger --add <json>` appends (the `ts` is added by the script).
