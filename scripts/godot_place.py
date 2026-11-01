@@ -12,7 +12,11 @@ aabb     {"size", "center", "bottom_center", "yaw_deg", "normalize_target_size",
          (gx, gz, gy): pass that one to `normalize.py --target-size`, never `size`.
 plan     what apply would do, without writing anything: `copy_to` (from profile naming, or
          --copy-to), `import_params`, `scene_diff` (unified diff of the scene), `before_after`
-         (size / position / yaw of placeholder vs model), `plan_sha256`. In generator_script mode
+         (size / position / yaw of placeholder vs model), `warnings`, `plan_sha256`. Warnings: a size
+         mismatch (with the normalize.py --target-size X,Y,Z hint, or, when the model already fills
+         the placeholder on its fitting axis, the two aspect ratios instead) and every kept
+         CollisionShape3D that no longer fits the model (> 25% larger or smaller on an axis; never
+         changed automatically). In generator_script mode
          (spec B19) there is no scene diff: `generator_hint` names the generator file and the
          lines that place this asset; the agent edits it and shows that diff.
 apply    recomputes the plan, refuses when --expect does not match its plan_sha256, then copies
@@ -60,6 +64,8 @@ VISUAL_TYPES = {"MeshInstance3D", "MultiMeshInstance3D", "Sprite3D", "AnimatedSp
                 "CSGMesh3D", "CSGCombiner3D"}
 MAX_INFLUENCES = 4
 SIZE_TOLERANCE = 0.10
+FIT_TOLERANCE = 0.02        # the model already fills the placeholder on its fitting axis
+COLLISION_LARGER = 0.25     # a kept collision this much larger than the model on an axis is flagged
 TAIL_LINES = 40
 GODOT_TIMEOUT = 900
 CHECK_TIMEOUT = 1800
@@ -582,11 +588,7 @@ def build_plan(a, root, profile, asset, glb) -> dict:
                                 "position": {"before": m["bottom_center"], "after": m["bottom_center"]},
                                 "yaw": {"before": m["yaw_deg"], "after": m["yaw_deg"]},
                                 "normalize_target_size": m["normalize_target_size"]}
-        off = [abs(after - before) / before for before, after in zip(m["size"], bounds["size"]) if before > 1e-9]
-        if any(o > SIZE_TOLERANCE for o in off):
-            warnings.append(f"model size {bounds['size']} differs from the placeholder size {m['size']} by more than "
-                            f"{int(SIZE_TOLERANCE * 100)}% on an axis; run normalize.py --target-size "
-                            f"{' '.join(_num(v) for v in m['normalize_target_size'])} first")
+        warnings += size_warnings(m, bounds["size"])
         if any(abs(v) > 0.01 * max(bounds["size"]) for v in bounds["bottom_center"]):
             warnings.append(f"model base centre is at {bounds['bottom_center']}, not the origin; "
                             f"the Model offset compensates")
@@ -609,6 +611,51 @@ def build_plan(a, root, profile, asset, glb) -> dict:
                                        "scene_diff", "model_transform")}
     plan["plan_sha256"] = hashlib.sha256(json.dumps(digest, sort_keys=True).encode()).hexdigest()
     return plan
+
+
+def _aspect(size) -> str:
+    big = max(size) or 1.0
+    return " : ".join(f"{v / big:.2f}" for v in size)
+
+
+def _fmt_size(size) -> str:
+    return " x ".join(_num(v) for v in size)
+
+
+def size_warnings(ph: dict, model_size) -> list:
+    """Size and collision warnings of a plan. `ph` is the aabb result of the placeholder (Godot
+    axes, metres, with its "collisions"); `model_size` is the model's size in the same frame."""
+    out = []
+    size = ph["size"]
+    pairs = [(b, a) for b, a in zip(size, model_size)]
+    off = [abs(a - b) / b for b, a in pairs if b > 1e-9]
+    if any(o > SIZE_TOLERANCE for o in off):
+        ratios = [a / b if b > 1e-9 else 0.0 for b, a in pairs]
+        k = max(range(3), key=lambda i: ratios[i])          # the axis a uniform fit is decided by
+        fitted = size[k] > 1e-9 and abs(model_size[k] - size[k]) / size[k] <= FIT_TOLERANCE + 1e-9
+        if fitted:
+            out.append(f"model size {_fmt_size(model_size)} m differs from the placeholder {_fmt_size(size)} m, "
+                       f"but it already fills the placeholder on {'xyz'[k]} (uniform scale): the aspect differs, "
+                       f"not the scale. Placeholder aspect x:y:z = {_aspect(size)}, model {_aspect(model_size)}. "
+                       f"Re-normalizing changes nothing; accept the smaller footprint, fit by another axis "
+                       f"(normalize.py --target-height), or resize the placeholder")
+        else:
+            out.append(f"model size {_fmt_size(model_size)} m differs from the placeholder {_fmt_size(size)} m by "
+                       f"more than {int(SIZE_TOLERANCE * 100)}% on an axis; run normalize.py --target-size "
+                       f"{','.join(_num(v) for v in ph['normalize_target_size'])} first")
+    for col in ph.get("collisions") or []:
+        c = col["size"]
+        larger = [ax for ax, cv, mv in zip("xyz", c, model_size) if cv > mv * (1 + COLLISION_LARGER)]
+        smaller = [ax for ax, cv, mv in zip("xyz", c, model_size) if cv < mv * (1 - FIT_TOLERANCE)]
+        if larger or smaller:
+            what = "; ".join(x for x in (
+                f"larger than the model by more than {int(COLLISION_LARGER * 100)}% on {', '.join(larger)}"
+                if larger else "",
+                f"smaller than the model on {', '.join(smaller)}" if smaller else "") if x)
+            out.append(f"collision {col['path']} ({col['shape']}, {_fmt_size(c)} m) no longer fits the model "
+                       f"({_fmt_size(model_size)} m): {what}. The swap keeps it unchanged; resize it by hand "
+                       f"after placement")
+    return out
 
 
 def public(plan: dict) -> dict:

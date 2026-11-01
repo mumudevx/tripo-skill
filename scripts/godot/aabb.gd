@@ -7,7 +7,9 @@ extends SceneTree
 ## Transforms are chained by hand from the node up to the scene root. The node's bounds are the
 ## merge of its own visual AABB and those of its visible VisualInstance3D descendants, measured
 ## in the node's own axes. "size" is that local size times the node's global scale, "yaw_deg"
-## comes from the global basis.
+## comes from the global basis. "collisions" lists every enabled CollisionShape3D under the node
+## ({"path" from the scene root, "shape" class, "size" in the node's axes times its global scale}),
+## so the plan can warn when the kept collision no longer fits the new model.
 ## Output: one line "TRIPO_JSON:{...}" on stdout. Exit 0 ok, 3 scene/node not found, 5 nothing
 ## measurable under the node.
 
@@ -54,6 +56,37 @@ func _collect(node: Node, top: Node, acc: Array) -> void:
 		_collect(c, top, acc)
 
 
+## AABB of a shape in its own CollisionShape3D space.
+func _shape_aabb(s: Shape3D) -> AABB:
+	if s is BoxShape3D:
+		var sz: Vector3 = (s as BoxShape3D).size
+		return AABB(-sz / 2.0, sz)
+	if s is SphereShape3D:
+		var r: float = (s as SphereShape3D).radius
+		return AABB(Vector3(-r, -r, -r), Vector3(2 * r, 2 * r, 2 * r))
+	if s is CapsuleShape3D:
+		var cr: float = (s as CapsuleShape3D).radius
+		var ch: float = (s as CapsuleShape3D).height
+		return AABB(Vector3(-cr, -ch / 2.0, -cr), Vector3(2 * cr, ch, 2 * cr))
+	if s is CylinderShape3D:
+		var yr: float = (s as CylinderShape3D).radius
+		var yh: float = (s as CylinderShape3D).height
+		return AABB(Vector3(-yr, -yh / 2.0, -yr), Vector3(2 * yr, yh, 2 * yr))
+	var m := s.get_debug_mesh()
+	return m.get_aabb() if m != null else AABB()
+
+
+func _collect_shapes(node: Node, top: Node, root: Node, scale: Vector3, acc: Array) -> void:
+	if node is CollisionShape3D:
+		var cs := node as CollisionShape3D
+		if cs.shape != null and not cs.disabled:
+			var box: AABB = _rel(cs, top) * _shape_aabb(cs.shape)
+			acc.append({"path": String(root.get_path_to(cs)), "shape": cs.shape.get_class(),
+				"size": _v(box.size * scale), "local_size": _v(box.size)})
+	for c in node.get_children():
+		_collect_shapes(c, top, root, scale, acc)
+
+
 func _initialize() -> void:
 	var args := OS.get_cmdline_user_args()
 	if args.size() != 2:
@@ -89,6 +122,8 @@ func _initialize() -> void:
 	var bottom_l := Vector3(center_l.x, local.position.y, center_l.z)
 	var yaw := rad_to_deg(g.basis.orthonormalized().get_euler().y)
 	var node_type := node.get_class()
+	var shapes: Array = []
+	_collect_shapes(node, node, root, scale, shapes)
 	root.free()
 	_emit({
 		"node_type": node_type,
@@ -100,4 +135,5 @@ func _initialize() -> void:
 		"local_position": _v(local.position),
 		"local_size": _v(local.size),
 		"local_bottom_center": _v(bottom_l),
+		"collisions": shapes,
 	}, 0)

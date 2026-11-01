@@ -170,6 +170,54 @@ class GodotPlace(unittest.TestCase):
         code, out = run(PLACE, "plan", self.proj, asset, self.glb(size=(1, 0.8, 0.5)), env=self.env)
         self.assertEqual(code, 0, out)
         self.assertTrue(any("size" in w for w in out["warnings"]), out["warnings"])
+        # T17 F8b: the hint is the form normalize.py accepts and godot.md shows (X,Y,Z, commas)
+        self.assertTrue(any("normalize.py --target-size 1,0.8,0.5 first" in w for w in out["warnings"]),
+                        out["warnings"])
+
+    def test_plan_aspect_mismatch_is_not_a_normalize_hint(self):
+        # T17 F8a: already fitted to the box (uniform scale), the difference is the aspect
+        self.make_profile()
+        asset = self.make_asset()
+        code, out = run(PLACE, "plan", self.proj, asset, self.glb(size=(0.5, 0.5, 0.32)), env=self.env)
+        self.assertEqual(code, 0, out)
+        size_w = [w for w in out["warnings"] if w.startswith("model size")]
+        self.assertEqual(len(size_w), 1, out["warnings"])
+        self.assertIn("aspect differs", size_w[0])
+        self.assertIn("1.00 : 0.50 : 0.80", size_w[0])      # placeholder x:y:z
+        self.assertIn("1.00 : 1.00 : 0.64", size_w[0])      # model
+        self.assertNotIn("--target-size", size_w[0])
+
+    def test_plan_collision_fit_warnings(self):
+        # T17 F8c: the kept collision is named when it no longer fits the model; never changed
+        self.make_profile()
+        asset = self.make_asset()
+        code, out = run(PLACE, "plan", self.proj, asset, self.glb(size=(0.5, 0.5, 0.32)), env=self.env)
+        self.assertEqual(code, 0, out)
+        cols = out["placeholder"]["collisions"]
+        self.assertEqual([c["path"] for c in cols], ["Crate/Body/Shape"])
+        for got, want in zip(cols[0]["size"], (1, 0.5, 0.8)):
+            self.assertAlmostEqual(got, want, delta=1e-3)
+        col_w = [w for w in out["warnings"] if w.startswith("collision")]
+        self.assertEqual(len(col_w), 1, out["warnings"])
+        self.assertIn("Crate/Body/Shape", col_w[0])
+        self.assertIn("larger than the model by more than 25% on x, z", col_w[0])
+        self.assertNotIn("Shape", out["scene_diff"])                     # not changed automatically
+        # matching model: no collision warning; a bigger model: the collision is smaller
+        code, out = run(PLACE, "plan", self.proj, asset, self.glb(size=(1, 0.5, 0.8)), env=self.env)
+        self.assertEqual([w for w in out["warnings"] if w.startswith("collision")], [])
+        code, out = run(PLACE, "plan", self.proj, asset, self.glb(size=(1.2, 0.6, 0.96)), env=self.env)
+        col_w = [w for w in out["warnings"] if w.startswith("collision")]
+        self.assertEqual(len(col_w), 1, out["warnings"])
+        self.assertIn("smaller than the model on x, y, z", col_w[0])
+
+    def test_size_warnings_unit(self):
+        ph = {"size": [1, 0.5, 0.8], "normalize_target_size": [1, 0.8, 0.5], "collisions": []}
+        self.assertEqual(godot_place.size_warnings(ph, [1, 0.5, 0.8]), [])
+        self.assertEqual(godot_place.size_warnings(ph, [0.99, 0.5, 0.79]), [])
+        w = godot_place.size_warnings(ph, [0.4, 0.49, 0.3])                 # y within 2%: fitted
+        self.assertIn("aspect differs", w[0])
+        w = godot_place.size_warnings(ph, [0.4, 0.4, 0.3])                  # not fitted yet
+        self.assertIn("--target-size 1,0.8,0.5", w[0])
 
     def test_plan_missing_profile(self):
         asset = self.tmp / "crate.json"
