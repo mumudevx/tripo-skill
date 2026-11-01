@@ -321,8 +321,26 @@ class Synthetic(unittest.TestCase):
         res = r["steps"][0]["result"]
         self.assertEqual(res["verts_pressed"], 4)
         self.assertEqual(res["faces_removed"], 4)              # the collapsed drawer walls
+        # the open-edge side effect is reported by the op itself (proposal 2026-11-01, amended);
+        # on an exactly flat plane the pressed cap rejoins the rim: no new holes
+        self.assertEqual((res["boundary_edges_before"], res["boundary_edges_after"]), (0, 0))
         self.assertAlmostEqual(r["bbox"]["max"][1], 1.0, places=5)
         self.assertEqual(r["tris"], 2 + 8 + 8 + 2)
+
+    def test_flatten_region_holes_and_weld_follow_up(self):
+        # the e2e tool chest (front +X): pressing the copied drawers opens edges; the documented
+        # follow-up needs weld_boundary with an eps_pct above the seam distance
+        src = fixture("tool_chest_g3")
+        skip_if_missing(src)
+        r = self.run_recipe(src, [("weld_boundary", {}),
+                                  ("flatten_region", {"box": [0.0, 0.03, 0.1, 0.2, 0.97, 0.86], "axis": "-x"}),
+                                  ("weld_boundary", {}),
+                                  ("weld_boundary", {"eps_pct": 0.5})])
+        flat, seam, wide = (r["steps"][i]["result"] for i in (1, 2, 3))
+        self.assertGreater(flat["faces_removed"], 0)
+        self.assertGreater(flat["boundary_edges_after"], flat["boundary_edges_before"])
+        self.assertEqual(seam["boundary_edges_after"], flat["boundary_edges_after"])   # default: nothing
+        self.assertLess(wide["boundary_edges_after"], flat["boundary_edges_after"])
 
     def test_hard_edges_split_a_smooth_cube(self):
         src = self.model([box(0, 1, 0, 1, 0, 1)])

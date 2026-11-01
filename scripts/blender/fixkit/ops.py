@@ -42,6 +42,8 @@ Ops (params -> result keys):
                                      press relief standing out along axis (+x|-x|+y|-y|
                                      +z|-z) back onto the main plane of the faces facing
                                      that way; collapsed walls are deleted
+                                     (faces_removed). boundary_edges_before/after: open
+                                     edges before and after, so new holes show at once
   clone_part(src_box, dst_offsets)   copy the faces in src_box to src_box + offset (each
                                      offset [dx, dy, dz] in bbox fractions), replacing the
                                      faces there
@@ -587,34 +589,41 @@ def flatten_region(ctx, box, axis, proud_pct=0.5):
     proud = proud_pct / 100.0 * ext
     eps = ctx.eps()
     out = {"plane_pct": round(100.0 * (sign * plane - lo[a]) / ext, 4), "verts_pressed": 0,
-           "faces_removed": 0}
+           "faces_removed": 0, "boundary_edges_before": 0, "boundary_edges_after": 0}
     for o in ctx.meshes:
         with _Edit(o) as bm:
-            pressed = []
-            for v in bm.verts:
-                p = np.array(v.co)
-                if _inside(p, rlo, rhi) and sign * p[a] > plane + proud:
-                    v.co[a] = sign * plane
-                    pressed.append(v)
-            if not pressed:
-                continue
-            out["verts_pressed"] += len(pressed)
-            bm.normal_update()
-            touched = {f for v in pressed for f in v.link_faces}
-            walls = [f for f in touched
-                     if all(abs(sign * w.co[a] - plane) <= proud for w in f.verts)
-                     and (f.calc_area() <= eps * eps or f.normal.dot(direction) < 0.5)]
-            out["faces_removed"] += len(walls)
-            bmesh.ops.delete(bm, geom=walls, context="FACES_ONLY")
-            near_plane = {w for f in touched if f.is_valid for w in f.verts}
-            bmesh.ops.remove_doubles(bm, verts=list(near_plane | set(v for v in pressed
-                                                                      if v.is_valid)),
-                                     dist=eps)
-            loose = [e for e in bm.edges if not e.link_faces]
-            loose += [v for v in bm.verts if not v.link_faces]
-            if loose:
-                bmesh.ops.delete(bm, geom=loose, context="EDGES")
+            out["boundary_edges_before"] += sum(e.is_boundary for e in bm.edges)
+            out["boundary_edges_after"] += _flatten_mesh(bm, rlo, rhi, a, sign, plane, proud, eps,
+                                                         direction, out)
     return out
+
+
+def _flatten_mesh(bm, rlo, rhi, a, sign, plane, proud, eps, direction, out) -> int:
+    """Press one mesh (flatten_region); returns its open (boundary) edges afterwards."""
+    pressed = []
+    for v in bm.verts:
+        p = np.array(v.co)
+        if _inside(p, rlo, rhi) and sign * p[a] > plane + proud:
+            v.co[a] = sign * plane
+            pressed.append(v)
+    if not pressed:
+        return sum(e.is_boundary for e in bm.edges)
+    out["verts_pressed"] += len(pressed)
+    bm.normal_update()
+    touched = {f for v in pressed for f in v.link_faces}
+    walls = [f for f in touched
+             if all(abs(sign * w.co[a] - plane) <= proud for w in f.verts)
+             and (f.calc_area() <= eps * eps or f.normal.dot(direction) < 0.5)]
+    out["faces_removed"] += len(walls)
+    # the walls' verts include the rim the pressed cap must rejoin: collect them before the delete
+    near_plane = {w for f in touched for w in f.verts}
+    bmesh.ops.delete(bm, geom=walls, context="FACES_ONLY")
+    bmesh.ops.remove_doubles(bm, verts=[v for v in near_plane | set(pressed) if v.is_valid], dist=eps)
+    loose = [e for e in bm.edges if not e.link_faces]
+    loose += [v for v in bm.verts if not v.link_faces]
+    if loose:
+        bmesh.ops.delete(bm, geom=loose, context="EDGES")
+    return sum(e.is_boundary for e in bm.edges)
 
 
 def clone_part(ctx, src_box, dst_offsets):

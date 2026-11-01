@@ -83,13 +83,13 @@ Lengths and regions are fractions of the model's bbox, never metres. A `box` is 
 | op | params | does | notes |
 |---|---|---|---|
 | `normalize` | `yaw`, `target_size`, `target_height`, `pivot`, `name` | weld, turn, uniform scale, pivot, names | sizes in metres; see `godot.md` for the axis order |
-| `weld_boundary` | `eps_pct` 0.001 | seam weld, then open-edge vertices within `eps_pct` % of the diagonal | run before the ops that need a weld |
+| `weld_boundary` | `eps_pct` 0.001 | seam weld, then open-edge vertices within `eps_pct` % of the diagonal | run before the ops that need a weld; the default equals the seam weld, so closing real gaps needs an explicit larger `eps_pct` |
 | `remove_loose` | `min_tris_pct` 1.0 | drops islands below the share; the largest always stays | needs a weld |
 | `remove_ground_slab` | `max_height_pct` 3, `reground` true | removes the flat sheet in the bottom band | needs a weld |
 | `delete_region` | `box` | deletes faces whose centre is inside | |
 | `fill_holes` | `max_edges` 64 | caps boundary loops; skips caps that would not be manifold (`holes_skipped`) | needs a weld |
 | `mirror_half` | `axis`, `keep`, `plane` 0.5 | cuts at `plane`, mirrors the kept side, welds the seam | |
-| `flatten_region` | `box`, `axis`, `proud_pct` 0.5 | presses relief standing out along `axis` back onto the main plane | |
+| `flatten_region` | `box`, `axis`, `proud_pct` 0.5 | presses relief standing out along `axis` back onto the main plane | may remove faces that collapse when pressed (`faces_removed`) and open new edges where the pressed cap does not meet the rim of an only roughly flat plane: it reports `boundary_edges_before`/`boundary_edges_after` itself, so expect `HOLES` to rise (tool chest: 48 faces removed, 175 -> 239). When the mesh feeds collision, LOD or rig, follow it with `weld_boundary` with an explicit `eps_pct` above the seam distance, then `fill_holes`: the default 0.001 only repeats the seam weld and closes nothing (tool chest: 0.05 nothing, 0.2 -> 211, 0.5 -> 164). Use the smallest value that brings `boundary_edges_after` back down; large values (1.0) start closing real gaps elsewhere |
 | `clone_part` | `src_box`, `dst_offsets` | copies the faces in `src_box` to each offset, replacing what was there | |
 | `hard_edges` | `angle` 30, `box` | marks edges sharper than `angle` sharp and splits normals there | runs after the normal restore; needs a weld |
 | `separate_parts` | `by` loose or material | one object per part, `<asset>_part_NN`, pivot at each part's bottom centre | last geometry step; loose needs a weld |
