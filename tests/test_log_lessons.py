@@ -168,12 +168,80 @@ class LogAsset(unittest.TestCase):
         self.assertEqual([len(r) for rs in rows.values() for r in rs], [7])
         self.assertEqual(list(rows.values())[0][0][5], "no")
         # the next asset still logs although the profile says none: the new file has the patina columns
-        code, out = run(LOG, proj, asset, "--cli-version", "0.9.0")
+        code, out = run(SCRIPTS / "asset_state.py", "new", proj, "barrel", "--class", "small_prop")
+        self.assertEqual(code, 0, out)
+        code, out = run(LOG, proj, out["path"], "--cli-version", "0.9.0")
         self.assertEqual(code, 0, out)
         self.assertEqual(out["format"], "patina")
+        self.assertFalse(out["already_logged"])
         self.assertTrue(out["warnings"])
         rows = table_rows((proj / "docs" / "asset_log.md").read_text(), "asset_path")
         self.assertEqual([len(r) for rs in rows.values() for r in rs], [7, 7])
+
+    def test_log_rerun_is_idempotent(self):
+        proj = self.project()
+        asset = self.asset(proj, recipe=False)
+        code, out = run(LOG, proj, asset, "--cli-version", "0.9.0", "--create")
+        self.assertEqual(code, 0, out)
+        self.assertFalse(out["already_logged"])
+        log = proj / "docs" / "asset_log.md"
+        before = log.read_text()
+        code, again = run(LOG, proj, asset, "--cli-version", "0.9.0")  # a resumed session
+        self.assertEqual(code, 0, again)
+        self.assertTrue(again["already_logged"])
+        self.assertEqual(again["row"], out["row"])
+        self.assertEqual(log.read_text(), before)
+        self.assertTrue(Path(again["provenance"]).is_file())
+
+    def test_log_user_supplied_raw(self):
+        """The e2e shape: a raw result made outside this skill, frozen under raw/<label>/."""
+        proj = self.project()
+        code, out = run(SCRIPTS / "asset_state.py", "new", proj, "tool_chest", "--class", "small_prop")
+        self.assertEqual(code, 0, out)
+        label = "tool_chest-generate-v01"
+        raw = proj / "art_source" / "small_prop" / "tool_chest" / "raw" / label / "tool_chest_g3.glb"
+        raw.parent.mkdir(parents=True)
+        raw.write_bytes(b"glTF user supplied raw")
+        entry = {"label": label, "kind": "generate", "source": "user-supplied",
+                 "file": f"raw/{label}/tool_chest_g3.glb", "task_id": None, "model": None}
+        code, out = run(SCRIPTS / "asset_state.py", "update", proj, "tool_chest",
+                        "--append", "chain=" + json.dumps(entry))
+        self.assertEqual(code, 0, out)
+        asset = Path(out["path"])
+        code, out = run(LOG, proj, asset, "--cli-version", "0.9.0", "--create")
+        self.assertEqual(code, 0, out)
+        prov = json.loads(Path(out["provenance"]).read_text())
+        (task,) = prov["tasks"]
+        self.assertEqual(task["source"], "user-supplied")
+        self.assertEqual(task["file"], f"raw/{label}/tool_chest_g3.glb")
+        self.assertEqual(task["sha256"], hashlib.sha256(b"glTF user supplied raw").hexdigest())
+        self.assertEqual(task["bytes"], len(b"glTF user supplied raw"))
+        self.assertIsNone(task["model"])
+        self.assertIsNone(task["task_id"])
+        self.assertEqual(prov["credits_total"], 0)
+        self.assertEqual(prov["models"], [])
+        self.assertEqual(prov["generator"], "Tripo (user-supplied raw, outside this skill)")
+        self.assertIn("Tripo (user-supplied raw, outside this skill)", prov["tools"])
+        self.assertNotIn("tripo-cli 0.9.0", prov["tools"])  # this session's CLI made nothing
+        self.assertEqual(prov["license"], "Tripo output supplied by the owner; plan and licence unknown "
+                                          "— owner to confirm")
+        self.assertEqual(prov["license_source"], "default")
+        row = out["row"]
+        self.assertIn("user-supplied raw", row[1])
+        self.assertNotIn("Tripo CLI", row[1])
+        self.assertIn("licence unknown", row[2])
+        self.assertIn("user-supplied", row[6])
+        # a rerun adds no second row
+        code, again = run(LOG, proj, asset, "--cli-version", "0.9.0")
+        self.assertEqual(code, 0, again)
+        self.assertTrue(again["already_logged"])
+        rows = table_rows((proj / "docs" / "asset_log.md").read_text(), "asset_path")
+        self.assertEqual(sum(len(r) for r in rows.values()), 1)
+        # the frozen copy must exist: provenance hashes it
+        raw.unlink()
+        code, out = run(LOG, proj, asset, "--cli-version", "0.9.0")
+        self.assertEqual(code, 3, out)
+        self.assertIn("tool_chest_g3.glb", out["error"])
 
     def test_log_missing_ref_named(self):
         proj = self.project(PATINA_LOG if PATINA_LOG.exists() else None, fmt="patina" if PATINA_LOG.exists() else "none")

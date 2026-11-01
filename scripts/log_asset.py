@@ -7,18 +7,27 @@
 Writes <art_source>/<kind>/<id>/provenance.json (schema provenance/1): tools, tripo-cli version,
 wire model ids, Tripo tasks with credits, sha256 of every input reference (and of --glb, the
 shipped model, when given), human edits (the ops of the asset's fix recipe) and the licence text.
+`tasks` holds every chain entry that has a `source` or a `task_id`. A user-supplied raw result
+(chain entry "source": "user-supplied", made outside this skill) is recorded with the sha256 and
+size of its frozen copy (`file`, relative to the asset folder <art_source>/<kind>/<id>/ or to the
+project), and `tools` (plus the top-level "generator" key) says it came from outside this skill.
 Then appends one row to the project's asset_log in its own format and table:
   grime   | id | class | tool | date | prompt or source | license | notes |   (the "Models" table)
   patina  | asset_path | source_tool | plan/license | generation_date | prompt_ref | human_edited | notes |
   none    no log yet: exit 5 with "create_needed": true; with --create (the user agreed) the
           script creates docs/asset_log.md with the patina columns and adds the row.
 Nothing is written unless both the provenance and the log row can be written.
+Idempotent: when the log already has a row for this asset (grime: same id; patina: same
+asset_path), no second row is added; provenance.json is refreshed and the output says
+"already_logged": true.
 
 kind: --kind, else brief.kind, else the asset class (the same folder the raw files use).
 CLI version: --cli-version, else <skill>/.state.json cli_version (cli_watch.py), else the
 profile's pinned.cli; the source is recorded. Licence: --license, else a Tripo default text
-that tells the owner to confirm the terms (profile/1 has no licence key).
-Missing inputs (a ref, the recipe, paths.art_source) stop the script with exit 3 naming them.
+that tells the owner to confirm the terms (profile/1 has no licence key). When no chain entry has
+a task_id (only user-supplied raws), the default says the plan and licence are unknown.
+Missing inputs (a ref, the recipe, a user-supplied raw file, paths.art_source) stop the script
+with exit 3 naming them.
 Output: one JSON line. Exit codes: see common.py.
 """
 import argparse
@@ -37,6 +46,8 @@ SCHEMA = "provenance/1"
 GRIME_COLUMNS = ("id", "class", "tool", "date", "prompt or source", "license", "notes")
 PATINA_COLUMNS = ("asset_path", "source_tool", "plan/license", "generation_date", "prompt_ref",
                   "human_edited", "notes")
+GENERATOR_USER = "Tripo (user-supplied raw, outside this skill)"
+LICENSE_UNKNOWN = "Tripo output supplied by the owner; plan and licence unknown — owner to confirm"
 NEW_LOG = ("# Asset log\n\nOne row per generated or licensed asset: evidence for the store AI content "
            "disclosure and for licensing questions.\n\n")
 
@@ -116,6 +127,35 @@ def load_recipe(root: Path, asset: dict) -> list:
     return [{"op": s.get("op"), "params": s.get("params", {})} for s in steps if isinstance(s, dict)]
 
 
+def task_record(root: Path, asset_dir: Path, e: dict) -> dict:
+    """One provenance task: a Tripo step run by the skill, or a user-supplied raw with the hash of
+    its frozen copy (`file` is relative to the asset folder, else to the project)."""
+    if e.get("source") != "user-supplied":
+        rec = {k: e.get(k) for k in ("label", "kind", "model", "task_id", "credits", "status")}
+        if e.get("source"):
+            rec["source"] = e["source"]
+        return rec
+    raw = e.get("file")
+    if not raw:
+        raise LogError(common.EXIT_INTERNAL, f"user-supplied chain entry {e.get('label')!r} has no file")
+    cands = [Path(raw).expanduser()] if Path(raw).expanduser().is_absolute() else [asset_dir / raw, root / raw]
+    path = next((c for c in cands if c.is_file()), None)
+    if path is None:
+        raise LogError(common.EXIT_NOT_FOUND, f"user-supplied raw file {raw} not found (looked in "
+                                              f"{', '.join(str(c) for c in cands)}); restore the frozen copy",
+                       missing=[raw])
+    return {"label": e.get("label"), "kind": e.get("kind"), "source": "user-supplied", "file": raw,
+            "sha256": sha256_of(path), "bytes": path.stat().st_size, "model": e.get("model"),
+            "task_id": e.get("task_id"), "credits": 0, "status": e.get("status")}
+
+
+def task_text(t: dict) -> str:
+    if t.get("source") == "user-supplied":
+        extra = "".join(f", {k} {t[k]}" for k in ("model", "task_id") if t.get(k))
+        return f"{t['kind']} user-supplied {t['file']} (sha256 {t['sha256'][:12]}{extra}, 0 credits)"
+    return f"{t['kind']} {t['model'] or '-'} task {t['task_id']} ({t['credits']} credits)"
+
+
 def cli_version(a, profile):
     if a.cli_version:
         return a.cli_version, "arg"
@@ -145,16 +185,27 @@ def build(a, root: Path, profile: dict, asset: dict) -> dict:
         output = {"path": rel_or_abs(root, glb), "sha256": sha256_of(glb), "bytes": glb.stat().st_size}
     edits = load_recipe(root, asset)
     version, version_src = cli_version(a, profile)
-    tasks = [{k: e.get(k) for k in ("label", "kind", "model", "task_id", "credits", "status")}
-             for e in asset.get("chain", []) if e.get("task_id")]
+    asset_dir = root / art / kind / asset["id"]
+    tasks = [task_record(root, asset_dir, e) for e in asset.get("chain", [])
+             if e.get("source") or e.get("task_id")]
     models = list(dict.fromkeys(t["model"] for t in tasks if t["model"]))
-    tools = [f"tripo-cli {version}"] + (["Blender (fix recipe)"] if edits else [])
-    license_text = a.license or (f"Tripo paid credits (tripo-cli {version}); commercial use per the Tripo terms "
-                                 f"at generation time; owner to confirm")
+    by_skill = [t for t in tasks if t.get("source") != "user-supplied"]
+    user = [t for t in tasks if t.get("source") == "user-supplied"]
+    tools = (([f"tripo-cli {version}"] if by_skill or not user else [])
+             + ([GENERATOR_USER] if user else [])
+             + (["Blender (fix recipe)"] if edits else []))
+    if a.license:
+        license_text = a.license
+    elif not any(t.get("task_id") for t in tasks):
+        license_text = LICENSE_UNKNOWN
+    else:
+        license_text = (f"Tripo paid credits (tripo-cli {version}); commercial use per the Tripo terms "
+                        f"at generation time; owner to confirm")
     today = a.date or date.today().isoformat()
-    prov_path = root / art / kind / asset["id"] / "provenance.json"
+    prov_path = asset_dir / "provenance.json"
     return {"schema": SCHEMA, "id": asset["id"], "class": asset["class"], "kind": kind, "date": today,
-            "tools": tools, "cli_version": version, "cli_version_source": version_src, "models": models,
+            "tools": tools, "generator": GENERATOR_USER if user else None, "cli_version": version,
+            "cli_version_source": version_src, "models": models,
             "tasks": tasks, "credits_total": sum(t["credits"] or 0 for t in tasks), "inputs": inputs,
             "output": output, "prompt": (asset.get("brief") or {}).get("prompt"),
             "human_edits": edits, "recipe": asset.get("recipe"), "license": license_text,
@@ -162,13 +213,19 @@ def build(a, root: Path, profile: dict, asset: dict) -> dict:
 
 
 def row_for(fmt: str, prov: dict, root: Path, asset_path: str, notes: str) -> list:
-    tasks = "; ".join(f"{t['kind']} {t['model'] or '-'} task {t['task_id']} ({t['credits']} credits)"
-                      for t in prov["tasks"])
+    tasks = "; ".join(task_text(t) for t in prov["tasks"])
     ops = ", ".join(e["op"] for e in prov["human_edits"])
     prov_rel = rel_or_abs(root, prov["_path"])
     refs = ", ".join(i["path"] for i in prov["inputs"])
+    user = any(t.get("source") == "user-supplied" for t in prov["tasks"])
+    by_skill = any(t.get("source") != "user-supplied" for t in prov["tasks"])
     if fmt == "grime":
-        tool = "Tripo " + " → ".join(prov["models"] or ["?"]) + f" (tripo-cli {prov['cli_version']})"
+        if user and not by_skill:
+            tool = GENERATOR_USER + (f", {' → '.join(prov['models'])}" if prov["models"] else "")
+        else:
+            tool = "Tripo " + " → ".join(prov["models"] or ["?"]) + f" (tripo-cli {prov['cli_version']})"
+            if user:
+                tool += f" + {GENERATOR_USER}"
         if ops:
             tool += " + Blender fix recipe"
         source = "; ".join(x for x in (f'"{prov["prompt"]}"' if prov["prompt"] else "",
@@ -178,7 +235,10 @@ def row_for(fmt: str, prov: dict, root: Path, asset_path: str, notes: str) -> li
         cells = [prov["id"], prov["class"], tool, prov["date"], source or "-", prov["license"], extra]
     else:
         steps = ", ".join(f"`{t['model']}` ({t['kind']})" for t in prov["tasks"] if t["model"])
-        tool = f"Tripo CLI {prov['cli_version']}" + (f", {steps}" if steps else "")
+        base = GENERATOR_USER if user and not by_skill else f"Tripo CLI {prov['cli_version']}"
+        if user and by_skill:
+            base += f" + {GENERATOR_USER}"
+        tool = base + (f", {steps}" if steps else "")
         prompt_ref = "; ".join(x for x in (f"`{prov_rel}`", f"refs: {refs}" if refs else "") if x)
         extra = "; ".join(x for x in (tasks, notes) if x)
         cells = [f"`{asset_path}`", tool, prov["license"], prov["date"], prompt_ref,
@@ -213,6 +273,21 @@ def plan_log(a, root: Path, profile: dict):
         raise LogError(common.EXIT_NOT_FOUND, f"asset log {rel} not found (profile asset_log_format {fmt}); "
                                               f"restore it or re-run profile.py init --force")
     return path, fmt, path.read_text(encoding="utf-8"), []
+
+
+def existing_row(fmt: str, text, key: str):
+    """Cells of the row already logged for `key` (grime: id, patina: asset_path), or None."""
+    if text is None or not key:
+        return None
+    lines = text.splitlines()
+    hit = find_table(lines, GRIME_COLUMNS if fmt == "grime" else PATINA_COLUMNS, "model" if fmt == "grime" else None)
+    if hit is None:
+        return None
+    for line in lines[hit[0] + 1:hit[1]]:
+        cells = [c.strip() for c in re.split(r"(?<!\\)\|", line.strip())[1:-1]]
+        if cells and set(line.strip()) - set("|-: ") and cells[0].strip("`") == key:
+            return cells
+    return None
 
 
 def insert_row(fmt: str, text, row: list) -> str:
@@ -270,15 +345,21 @@ def main(argv) -> int:
         asset_path = a.asset_path or (common.model_dest(profile, asset["id"], asset["class"])
                                       if fmt == "patina" else None)
         row = row_for(fmt, prov, root, asset_path, a.notes)
-        new_text = insert_row(fmt, text, row)
+        logged = existing_row(fmt, text, asset["id"] if fmt == "grime" else asset_path)
+        new_text = text if logged else insert_row(fmt, text, row)
     except LogError as e:
         common.fail(e.code, str(e), **e.extra)
+    if logged:
+        row = logged
+        warnings = warnings + [f"{rel_or_abs(root, log_path)} already has a row for this asset; no second row "
+                               f"added (edit it by hand if it must change)"]
     prov_path = prov.pop("_path")
     prov["asset_log"] = {"path": rel_or_abs(root, log_path), "format": fmt, "row": row}
     write_text(prov_path, json.dumps(prov, ensure_ascii=False, indent=2) + "\n")
-    write_text(log_path, new_text)
+    if not logged:
+        write_text(log_path, new_text)
     common.emit({"ok": True, "provenance": str(prov_path), "asset_log": str(log_path), "format": fmt,
-                 "created": text is None, "row": row, "warnings": warnings})
+                 "created": text is None, "already_logged": bool(logged), "row": row, "warnings": warnings})
     return common.EXIT_OK
 
 

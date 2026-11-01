@@ -65,7 +65,7 @@ Placeholder **and** a raw generation result the user already has (made outside t
   - The target size is always `normalize_target_size` (from `aabb` or the plan's `before_after`), written `X,Y,Z`, **never the raw Godot `size`** (Blender is Z up; a raw size swaps height and depth).
   - Always `godot_place.py plan <project> <asset.json> export/<id>.glb` first. Show `scene_diff` (or, in `generator_script` mode, your own diff of the generator file from `generator_hint`) and the `before_after` table, plus its warnings. Ask once. Exit 2 on a naming pattern it cannot fill (e.g. a zone in `obj_<zone>_<id>`) -> pass `--copy-to <res path>` to both `plan` and `apply`.
   - After approval: `godot_place.py apply <project> <asset.json> export/<id>.glb --expect <plan_sha256>` with the `plan_sha256` of the plan the user saw. Never a bare `apply`. Exit 5 = refused or a check failed: show `step`, `tail`, `written`; nothing rolls back.
-  - Then `log_asset.py <project> <asset.json> --glb export/<id>.glb --kind <kind>`; `create_needed: true` -> ask once, then `--create`.
+  - Then `log_asset.py <project> <asset.json> --glb export/<id>.glb --kind <kind>`; `create_needed: true` -> ask once, then `--create`. A re-run (resumed session) adds no second row (`already_logged: true`). A user-supplied raw goes in with its file hash, and the licence reads "unknown — owner to confirm" unless the user gives `--license`.
 
 ## 3. Approval rules (spec 18, K5, K14)
 
