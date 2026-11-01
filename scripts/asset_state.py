@@ -252,7 +252,8 @@ def new_asset(a) -> dict:
              "brief": brief, "refs": list(a.ref or []), "chain": [], "qa": [], "recipe": None,
              "decisions": []}
     write_json(path, asset)
-    return {"ok": True, "path": str(path), "asset": asset}
+    created = common.ensure_gdignore(root, profile)  # repairs a profile made before init did it
+    return {"ok": True, "path": str(path), "asset": asset, "created": created}
 
 
 def update_asset(a) -> dict:

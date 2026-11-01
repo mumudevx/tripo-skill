@@ -99,6 +99,26 @@ def model_dest(profile: dict, asset_id: str, asset_class: str) -> str:
     return rel.as_posix()
 
 
+def ensure_gdignore(project: Path, profile: dict) -> list:
+    """Create <art_source>/ and an empty <art_source>/.gdignore when the profile names an art
+    source, so Godot never imports raw Tripo files, .blend files or render sheets. Owned by
+    `profile.py init`; `asset_state.py new` calls it again to repair an older profile's folder.
+    Returns the project-relative paths it created ([] when everything was there)."""
+    art = ((profile or {}).get("paths") or {}).get("art_source")
+    if not art:
+        return []
+    folder = Path(project) / art
+    created = []
+    if not folder.is_dir():
+        folder.mkdir(parents=True)
+        created.append(Path(art).as_posix() + "/")
+    marker = folder / ".gdignore"
+    if not marker.exists():
+        marker.write_text("", encoding="utf-8")
+        created.append((Path(art) / ".gdignore").as_posix())
+    return created
+
+
 # ---------- <skill>/.state.json ----------
 # Shared by cli_watch.py (last_check, cli_version, golden_ok_for), log_asset.py (reads
 # cli_version) and lessons.py ("projects"). Always read-modify-write; never replace the whole file.

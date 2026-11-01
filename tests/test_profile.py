@@ -219,6 +219,35 @@ class InitTests(Base):
         code, out, _ = profile_cli("init", proj, "--answers", "/nonexistent/answers.json")
         self.assertEqual(code, 3)
 
+    def test_init_creates_art_source_gdignore(self):
+        # T17 F4: profile.py init owns <art_source>/.gdignore so Godot never imports raw files
+        proj = self.project(minimal_project())
+        code, out, _ = profile_cli("init", proj, "--answers",
+                                   json.dumps({"paths": {"art_source": "art_src"}}))
+        self.assertEqual(code, 0, out)
+        self.assertTrue((proj / "art_src" / ".gdignore").is_file())
+        self.assertEqual(out["created"], ["art_src/", "art_src/.gdignore"])
+        # idempotent; an existing folder without the marker gets only the marker
+        (proj / "art_src" / ".gdignore").unlink()
+        (proj / "art_src" / "keep.txt").write_text("x")
+        code, out, _ = profile_cli("init", proj, "--force", "--answers",
+                                   json.dumps({"paths": {"art_source": "art_src"}}))
+        self.assertEqual((code, out["created"]), (0, ["art_src/.gdignore"]))
+        self.assertEqual((proj / "art_src" / "keep.txt").read_text(), "x")
+        code, out, _ = profile_cli("init", proj, "--force", "--answers",
+                                   json.dumps({"paths": {"art_source": "art_src"}}))
+        self.assertEqual((code, out["created"]), (0, []))
+        # no art source -> nothing created
+        proj2 = self.project(minimal_project())
+        code, out, _ = profile_cli("init", proj2, "--answers", json.dumps(ANSWERS))
+        self.assertEqual((code, out["created"]), (0, []))
+        # asset_state.py new repairs a deleted marker
+        (proj / "art_src" / ".gdignore").unlink()
+        code, out, _ = asset_cli("new", proj, "crate", "--class", "small_prop")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(out["created"], ["art_src/.gdignore"])
+        self.assertTrue((proj / "art_src" / ".gdignore").is_file())
+
     def test_game_camera_pitch_sign(self):
         # T17 F3: pitch is degrees above the horizon (render_sheet.py --game-cam convention)
         proj = self.project(minimal_project())

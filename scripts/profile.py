@@ -6,7 +6,9 @@
   profile.py init <project> --answers <json|file|-> [--force]
 
 `detect` never writes. `init` merges the answers over the detected values, validates the result
-and writes it; it refuses to overwrite an existing profile without --force.
+and writes it; it refuses to overwrite an existing profile without --force. When
+paths.art_source is set, `init` also creates that folder and an empty `.gdignore` in it (listed
+in "created"), so Godot never imports raw models, .blend files or render sheets.
 
 game_camera {yaw, pitch, fov} uses render_sheet.py's convention (it is passed on as
 `--game-cam yaw,pitch,fov`): yaw = degrees around the model from its front towards its right,
@@ -339,8 +341,9 @@ def main(argv):
                         f"pitch is degrees above the horizon (a camera above looking down is positive, "
                         f"e.g. 35)")
     write_profile(path, profile)
+    created = common.ensure_gdignore(root, profile)  # Godot must never import the art source
     common.emit({"ok": True, "project": str(root), "path": str(path), "profile": profile,
-                 "unknown": unknown_keys(profile), "warnings": warnings})
+                 "unknown": unknown_keys(profile), "warnings": warnings, "created": created})
     return common.EXIT_OK
 
 
