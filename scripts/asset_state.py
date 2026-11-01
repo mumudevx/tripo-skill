@@ -8,6 +8,9 @@
                                        [--chain-update LABEL=JSON ...]
   asset_state.py ledger <project> [--asset ID] [--add JSON]
 
+`new --ref` copies each reference image into <art_source>/<kind>/<id>/refs/ (kind = brief.kind,
+else the class) and stores that project-relative path; a ref already there is stored as is.
+
 Files: assets/<id>.json (schema asset/1) and ledger.jsonl (append-only, one row per paid step
 estimate/result). A file with another schema is never touched or migrated silently: `get` and
 `update` exit 5 with "migrate": true (older) so the caller can migrate it deliberately.
@@ -24,6 +27,7 @@ import argparse
 import json
 import os
 import re
+import shutil
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -246,16 +250,56 @@ def new_asset(a) -> dict:
     path = asset_path(root, asset_id)
     if path.exists():
         raise UsageError(f"asset {asset_id!r} exists at {path}; use `update`")
+    refs, copies, warnings = plan_refs(root, profile, asset_id, brief.get("kind") or a.cls, a.ref or [])
     asset = {"schema": SCHEMA, "id": asset_id, "class": a.cls, "phase": "brief",
              "placeholder": ({"scene": a.placeholder_scene, "node": a.placeholder_node}
                              if a.placeholder_scene else None),
-             "brief": brief, "refs": list(a.ref or []), "chain": [], "qa": [], "recipe": None,
+             "brief": brief, "refs": refs, "chain": [], "qa": [], "recipe": None,
              "decisions": []}
     # repairs a profile made before init did it; before any write, so a refusal leaves nothing behind
     created = common.ensure_gdignore(root, profile, confirmed=a.confirm_gdignore)
+    for src, dest in copies:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src, dest)
     write_json(path, asset)
     return {"ok": True, "path": str(path), "asset": asset, "created": created,
-            "warnings": common.gdignore_warnings(created)}
+            "copied": [d.relative_to(root).as_posix() for _, d in copies],
+            "warnings": common.gdignore_warnings(created) + warnings}
+
+
+def plan_refs(root: Path, profile: dict, asset_id: str, kind: str, raw_refs: list):
+    """(stored ref paths, [(source, destination)] to copy, warnings) for `new --ref`. Every
+    reference is copied into <art_source>/<kind>/<id>/refs/ and stored project-relative, so
+    log_asset.py can hash it later even when the original moves. A ref already in that folder
+    is stored as is. A relative ref is read from the working directory, else the project."""
+    art = (profile.get("paths") or {}).get("art_source")
+    refs_dir = root / art / kind / asset_id / "refs" if art else None
+    stored, copies, warnings, taken = [], [], [], {}
+    for raw in raw_refs:
+        given = Path(raw).expanduser()
+        cands = [given] if given.is_absolute() else [Path.cwd() / given, root / given]
+        src = next((c for c in cands if c.is_file()), None)
+        if src is None:
+            raise NotFound(f"reference image not found: {raw} (looked in {', '.join(str(c) for c in cands)})")
+        src = src.resolve()
+        if refs_dir is None:
+            warnings.append(f"profile paths.art_source is not set: {raw} is stored as given, not copied")
+            stored.append(raw)
+            continue
+        if src.parent == refs_dir.resolve():
+            stored.append(src.relative_to(root.resolve()).as_posix())
+            continue
+        dest = refs_dir / src.name
+        if dest.name in taken and taken[dest.name] != src:
+            raise UsageError(f"two references are both named {src.name}; rename one before `new`")
+        if dest.exists() and dest.read_bytes() != src.read_bytes():
+            raise UsageError(f"{dest.relative_to(root).as_posix()} already exists with other content; "
+                             f"rename the reference or remove the old file")
+        taken[dest.name] = src
+        if not dest.exists():
+            copies.append((src, dest))
+        stored.append(dest.relative_to(root).as_posix())
+    return stored, copies, warnings
 
 
 def update_asset(a) -> dict:

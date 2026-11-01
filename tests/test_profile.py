@@ -250,6 +250,33 @@ class InitTests(Base):
         self.assertTrue(any("art_src/.gdignore" in w for w in out["warnings"]), out["warnings"])
         self.assertTrue((proj / "art_src" / ".gdignore").is_file())
 
+    def test_new_copies_refs_into_asset_folder(self):
+        # e2e confusion: `--ref` used to be stored as given; log_asset.py later needs the file
+        proj = self.project(minimal_project())
+        code, out, _ = profile_cli("init", proj, "--answers", json.dumps({"paths": {"art_source": "art_src"}}))
+        self.assertEqual(code, 0, out)
+        outside = self.project(tmpdir("tripo-ref-"))
+        (outside / "chest.png").write_bytes(b"\x89PNG chest")
+        code, out, _ = asset_cli("new", proj, "tool_chest", "--class", "small_prop",
+                                 "--brief", json.dumps({"kind": "props"}), "--ref", outside / "chest.png")
+        self.assertEqual(code, 0, out)
+        want = "art_src/props/tool_chest/refs/chest.png"
+        self.assertEqual(out["asset"]["refs"], [want])
+        self.assertEqual(out["copied"], [want])
+        self.assertEqual((proj / want).read_bytes(), b"\x89PNG chest")
+        self.assertTrue((outside / "chest.png").is_file())          # the original stays
+        # a ref already in the asset's refs/ is stored as is; a missing ref exits 3 and writes nothing
+        code, out, _ = asset_cli("new", proj, "barrel", "--class", "small_prop", "--ref", outside / "nope.png")
+        self.assertEqual(code, 3, out)
+        self.assertFalse((proj / ".claude" / "tripo" / "assets" / "barrel.json").exists())
+        (proj / "art_src" / "small_prop" / "barrel" / "refs").mkdir(parents=True)
+        (proj / "art_src" / "small_prop" / "barrel" / "refs" / "front.png").write_bytes(b"png")
+        code, out, _ = asset_cli("new", proj, "barrel", "--class", "small_prop",
+                                 "--ref", "art_src/small_prop/barrel/refs/front.png")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(out["asset"]["refs"], ["art_src/small_prop/barrel/refs/front.png"])
+        self.assertEqual(out["copied"], [])
+
     def test_art_source_project_root_rejected(self):
         # I6: a .gdignore at the project root hides the whole project from Godot
         proj = self.project(minimal_project())
