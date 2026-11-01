@@ -1,6 +1,7 @@
 """Tests for scripts/tripo_plan.py. Every Tripo call here is `--dry-run --json` or
 `models --json`: zero network, zero credits. The CLI comes from $TRIPO or PATH;
-tests that need it skip when it is missing."""
+tests that need it skip when it is missing, and say so in one stderr line.
+REQUIRE_TRIPO=1 turns that skip into a failure (see tests/README.md)."""
 import json
 import os
 import shutil
@@ -54,8 +55,22 @@ class Scratch(unittest.TestCase):
 
 
 class DryRunRules(Scratch):
+    """B10/B17 rules checked against the real `tripo make --dry-run`. Skipped loudly without the
+    CLI; REQUIRE_TRIPO=1 makes a missing CLI a failure."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.missing = tripo_plan.tripo_bin() is None
+        if cls.missing and os.environ.get("REQUIRE_TRIPO") != "1":
+            n = len(unittest.TestLoader().getTestCaseNames(cls))
+            sys.stderr.write(f"\n{n} dry-run rule tests SKIPPED: tripo not on PATH (set TRIPO=<path>)\n")
+
     def setUp(self):
-        need_tripo()
+        if self.missing:
+            if os.environ.get("REQUIRE_TRIPO") == "1":
+                self.fail("REQUIRE_TRIPO=1 but the tripo CLI was not found (set TRIPO=<path> or fix PATH)")
+            raise unittest.SkipTest("tripo CLI not found ($TRIPO or PATH)")
         super().setUp()
 
     def test_delight_generate(self):
