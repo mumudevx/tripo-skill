@@ -129,7 +129,9 @@ GOOD_GOLDEN = [{"name": "crate_pbr_off",
 
 def run_cli(root, state, *args, golden=None):
     env = {k: v for k, v in os.environ.items() if k != "TRIPO"}
-    env.update({"TRIPO": str(root / "bin" / "tripo"), "CLI_WATCH_OFFLINE": "1"})
+    # npm_config_prefix: `npm root -g` must not find the machine's real tripo-cli package
+    env.update({"TRIPO": str(root / "bin" / "tripo"), "CLI_WATCH_OFFLINE": "1",
+                "npm_config_prefix": str(root / "npm-prefix")})
     argv = [sys.executable, CLI, "check", "--state", str(state), *args]
     if golden:
         argv += ["--golden", str(golden)]
