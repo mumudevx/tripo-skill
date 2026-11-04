@@ -35,7 +35,7 @@ Changelog sources, in order: the installed package's `CHANGELOG.md` (`npm root -
 
 ## 4. The golden contract (`tests/golden_dryruns.json`)
 
-- About 40 `tripo make` commands with the expected payload, warnings, errors and estimate, recorded on tripo-cli 0.9.0. Entry shape: `{"name", "argv": ["tripo", "make", ...], "expect": {"valid", "payload_subset", "warnings_contains", "errors_contains", "estimate", "warnings_count", "errors_count"}}`.
+- About 40 `tripo make` commands with the expected payload, warnings, errors and estimate, recorded on tripo-cli 0.9.0 and re-recorded on 0.11.0 (five drifts, see section 6). Entry shape: `{"name", "argv": ["tripo", "make", ...], "expect": {"valid", "payload_subset", "warnings_contains", "errors_contains", "estimate", "warnings_count", "errors_count"}}`.
 - The runner appends `--dry-run --json` and nothing else, ever: `argv` must be a `tripo make` command. Placeholders `{png}`, `{png2}`, `{png3}`, `{glb}` and `{task}` become throw-away files and ids. `payload_subset` maps a step name (`text-to-model`, `image-to-model`, `decimate`, `rig`, ...) to a subset of that step's payload.
 - A new golden is added only through a proposal, recorded by running the command with `--dry-run --json` on the installed CLI. Never a real run.
 - `tests/test_references.py` checks that every fenced `tripo` command in `references/` matches a golden's shape (subcommand, `--model`, `--for`, the set of `-p` keys, the `--then` steps and their argument keys) or carries `<!-- unverified -->`.
@@ -52,14 +52,19 @@ These cannot be checked without spending credits. Each one is measured on the fi
 | `texture_version=v3.5` surcharge | compare `credits_consumed` with the dry-run estimate | `prices.json`, lesson |
 | `delight=true` effect on baked light | `qa.py` `BAKED_LIGHT` and the light-sweep row vs a non-delight control | lesson |
 | `face_limit` overshoot on v3.1 without `smart_low_poly` | `glbstat.py` tris vs the requested limit | lesson, `generation-planning.md` table |
+| segment v2.0 price and result (the default from 2026-12-01; v1.0 was 40) | `credits_consumed`; part count and seams in the render sheet; whether `complete` accepts the v2.0 task | `prices.json` `segment`, lesson |
+| `generate_parts` on segmentation v2.0 and `smart_low_poly` on retopology v3.0 (both from 2026-12-01) | part count and fit; `glbstat.py` tris vs the limit | lesson, `generation-planning.md` section 3 |
 | A-pose vs T-pose on rig-check and rig | rig-check verdict and rig quality for both poses | lesson, `rigging.md` |
 | `spec` for Godot (`mixamo` assumed) | `godot_place.py rig_accept` + the editor BoneMap (red bones) | lesson, `profile.json` |
 | `decimate -> uv` and `rig -> convert` from non-generation task ids | whether the server accepts the chained step | lesson, `tripo-cli.md` |
 | retarget clip names, packaging, frame rate | `glbstat.py` `animations` on the first retarget output | lesson, `rigging.md` |
 | rig output bone count, influences, scale (v3.0) | `rig_accept`, `qa.py` | lesson |
 
-## 6. Known 0.6.1 -> 0.9.0 changes the references already reflect
+## 6. Known 0.6.1 -> 0.11.0 changes the references already reflect
 
 - 0.8.0: `generation_credits_estimate` in dry-run JSON (H3.1 and P2 only; `null` for P1, legacy models, imports and chain steps); unknown 3D models rejected; H3.1 the official default; chain preflight before uploads; strict pipes; a successful task whose download fails exits 7.
 - 0.8.1: `tripo models` lists the accepted model ids and aliases offline.
 - 0.9.0: PBR opt-in (`pbr=false` when omitted); short texture model names (`v3.5`) and rig names (`v3.0`) accepted; `decimate` `smart_uv` needs an explicit `model=v3.0`; `generate_parts` + `smart_low_poly` rejected; v2.5 strips unsupported parameters with warnings; `tripo mcp --toolset full` (the MCP server stays outside the credit lock and is never used by the skill).
+- 0.10.0: an omitted 3D model is always P2 (a plain textured prompt 20 -> 110 credits; the skill always passes `--model`); an omitted rig model resolves after rig-check (quadruped v2.5, else v3.0); `quad=true` on P2 warns that output is FBX; `delight` is dropped with a warning on a texture version that cannot use it; `tripo model texture --dry-run` exists (the skill keeps `make --then texture`; the lock still asks for the direct form); argument errors exit 2; `make --no-wait` with `--then` exits 2; `tripo model convert` needs `--format`. Goldens re-recorded: `default_model_is_p2_drops_smart_low_poly`, `candidates_over_4_error` (P2, 550), `rig_default_model`, `p2_quad_face_limit_error`, `parts_with_smart_low_poly_error`.
+- 0.11.0: login and analytics only; nothing that affects the skill.
+- API, not CLI (Tripo email 2026-11-02): on 2026-12-01 Tripo retires H2.5 generation, texture v2.5 and segment v1.0; `generate_parts` moves to segmentation v2.0 and `smart_low_poly` to retopology v3.0. `prices.json` `retired` lists the wire ids `tripo_plan.py` rejects; segment is pinned to `v2.0-20260430`.

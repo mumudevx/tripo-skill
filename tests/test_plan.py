@@ -371,7 +371,8 @@ class BuildAndTable(Scratch):
             ({"kind": "decimate", "model": "v1.0", "input": task, "params": {}}, 10),
             ({"kind": "decimate", "model": "v2.0", "input": task, "params": {}}, 30),
             ({"kind": "uv", "input": task}, 20),
-            ({"kind": "segment", "input": task}, 40),
+            ({"kind": "segment", "input": task}, None),  # v2.0 default, price unpublished
+            ({"kind": "segment", "model": "v1.0", "input": task}, 40),
             ({"kind": "complete", "input": task}, 50),
             ({"kind": "complete", "input": task, "params": {"completion_mode": "quick_cap"}}, 30),
             ({"kind": "smartsegment", "input": {"file": str(self.glb)}}, 55),
@@ -392,9 +393,35 @@ class BuildAndTable(Scratch):
 
     def test_price_table_dated(self):
         table = json.loads((SCRIPTS / "data" / "prices.json").read_text())
-        self.assertEqual(table["as_of"], "2026-10-31")
+        self.assertEqual(table["as_of"], "2026-11-03")
         self.assertIsNone(table["import"])
 
+
+    def test_retired_models_rejected(self):
+        """Tripo retires H2.5 generation, texture v2.5 and segment v1.0 on 2026-12-01."""
+        task = {"task": TASK}
+        cases = [
+            self.gen(model="tripo-v2.5"),
+            self.gen(model="v2.5-20250123"),
+            self.gen({"texture_version": "v2.5"}),
+            {"kind": "texture", "label": "mailbox-texture-v01", "model": "v2.5", "input": task},
+            {"kind": "segment", "label": "mailbox-segment-v01", "model": "v1.0", "input": task},
+        ]
+        for step in cases:
+            _, _, errors = tripo_plan._rules(step)
+            self.assertTrue(any("retired by Tripo on 2026-12-01" in e for e in errors), step)
+        for step in (self.gen(), self.gen({"texture_version": "v3.5"}),
+                     {"kind": "texture", "label": "mailbox-texture-v01", "model": "v3.5",
+                      "input": task}):
+            self.assertEqual(tripo_plan._rules(step)[2], [], step)
+
+    def test_segment_model_pinned_to_v2(self):
+        argv = tripo_plan.build({"kind": "segment", "label": "mailbox-segment-v01",
+                                 "input": {"task": "@mailbox-generate-v01"}})
+        self.assertEqual(argv[argv.index("--then") + 1], "segment:model=v2.0-20260430")
+        argv = tripo_plan.build({"kind": "segment", "label": "mailbox-segment-v01",
+                                 "model": "v2.0", "input": {"task": "@mailbox-generate-v01"}})
+        self.assertEqual(argv[argv.index("--then") + 1], "segment:model=v2.0")
 
 
 class DryRunArgv(unittest.TestCase):

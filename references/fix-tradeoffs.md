@@ -31,8 +31,8 @@ Columns: A = Blender ops (the `fix_options` names `qa.py` reports); B = Tripo ro
 | code | A: Blender (0 credits) | B: Tripo (credits) | C: regenerate when | keeps rig | keeps UV | keeps scale |
 |---|---|---|---|---|---|---|
 | `OVER_BUDGET` | none in fixkit (Godot LODs do not lower LOD0) | `tripo_decimate`: decimate `model=v3.0;face_limit=<budget>;smart_uv=true`, 35 (40 quad); never v2.0 | never for budget alone | A n/a; B no (decimate before rig) | B no: new UVs, texture re-baked | B unknown: re-run `normalize.py` |
-| `NON_MANIFOLD` | `weld_boundary`, then `delete_region` on the bad faces (+ `fill_holes`) | segment 40 + complete `quick_cap` 30 | thousands of edges across the main body | A refuses rigged; B no | A yes on untouched faces; B unknown | A yes; B unknown |
-| `HOLES` | `weld_boundary` (seam weld + open-edge snap), then `fill_holes` (loop walker, caps take rim UVs) | segment 40 + complete `quick_cap` 30 | a main part is missing, not just open | A refuses rigged; B no | A yes (caps get rim UVs); B unknown | A yes; B unknown |
+| `NON_MANIFOLD` | `weld_boundary`, then `delete_region` on the bad faces (+ `fill_holes`) | segment v2.0 (price unknown) + complete `quick_cap` 30 | thousands of edges across the main body | A refuses rigged; B no | A yes on untouched faces; B unknown | A yes; B unknown |
+| `HOLES` | `weld_boundary` (seam weld + open-edge snap), then `fill_holes` (loop walker, caps take rim UVs) | segment v2.0 (price unknown) + complete `quick_cap` 30 | a main part is missing, not just open | A refuses rigged; B no | A yes (caps get rim UVs); B unknown | A yes; B unknown |
 | `LOOSE_PARTS` | `remove_loose` (pieces under `min_tris_pct`, needs a weld), or `delete_region` for a named piece | none | the pieces are a needed part that came out detached and broken | A refuses rigged | A yes | A yes |
 | `FLIPPED_NORMALS` | `delete_region` + `fill_holes` on the flipped patch | `tripo_regenerate` | flipped over a large visible area | A refuses rigged; C no | A yes | A yes |
 | `SLIVERS` | none in fixkit | `tripo_decimate` (v3.0, 35) remeshes; `tripo_regenerate` from views (bicycle 2.5% to 0.8%) | slivers come with broken shapes (spokes, teeth) | B no | B no: new UVs | B unknown |
@@ -50,7 +50,7 @@ Columns: A = Blender ops (the `fix_options` names `qa.py` reports); B = Tripo ro
 
 Notes on the table:
 - Material budget for `MULTI_MATERIAL`: 1 per prop, 2 with a glass, emissive or alpha part.
-- A defect with no QA code (closed cavity, extra handle, fused prop) uses the same columns: `delete_region` + `fill_holes`, `clone_part`, `separate_parts`; Tripo segment 40 / complete 50; regenerate from a fixed image.
+- A defect with no QA code (closed cavity, extra handle, fused prop) uses the same columns: `delete_region` + `fill_holes`, `clone_part`, `separate_parts`; Tripo segment v2.0 (price unknown) / complete 50; regenerate from a fixed image.
 - Glass found in QA is marked as a material in Godot (spec 13). Tripo glass always comes out opaque and painted; PATINA used a shader that reads the painted grey or pale-blue area as glass.
 
 ## 3. Fix recipes, not one-off scripts

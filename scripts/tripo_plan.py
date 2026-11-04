@@ -250,6 +250,9 @@ def _rules(step):
                     p[key] = False
                     warnings.append(f"generate_parts=true: {key}=false is sent explicitly "
                                     "(the server rejects parts with texture/pbr on)")
+    errors += _retired_errors(s)
+    if kind == "segment" and not s.get("model"):
+        s["model"] = prices()["segment"]["default"]  # pinned: the server default moves on retirement
     if kind == "rig":
         rig_type = p.get("rig_type", "biped")
         if rig_type not in RIG_TYPES:
@@ -260,6 +263,36 @@ def _rules(step):
             if rig_type != "biped":
                 errors.append(f"spec={p['spec']!r} only applies to rig_type=biped (got {rig_type!r})")
     return s, warnings, errors
+
+
+SHORT_WIRE = {"segment": {"v1.0": "v1.0-20250506", "v2.0": "v2.0-20260430"},
+              "texture": {"v2.5": "v2.5-20250123"}}
+
+
+def _wire(kind, model):
+    """Offline wire id for a model name: generation aliases from prices.json, short names else."""
+    want = str(model).strip().lower()
+    if kind == "generate":
+        return prices()["generate"]["aliases"].get(want, str(model).strip())
+    return SHORT_WIRE.get(kind, {}).get(want, str(model).strip())
+
+
+def _retired_errors(s):
+    """Models Tripo retires (prices.json `retired`): rejected before any credit is planned."""
+    r = prices()["retired"]
+    kind, p, errors = s["kind"], s["params"], []
+    checks = []
+    if s.get("model") and kind in ("generate", "texture", "segment"):
+        checks.append((kind, "model", s["model"]))
+    if "texture_version" in p and kind in ("generate", "texture"):
+        checks.append(("texture", "texture_version", p["texture_version"]))
+    for cap, what, value in checks:
+        wire = _wire(cap, value)
+        if wire in r.get(cap, []):
+            errors.append(f"{what}={value} ({wire}) is retired by Tripo on {r['date']}; "
+                          "use a current model (generation tripo-v3.1/P1/P2, texture v3.5, "
+                          "segment v2.0)")
+    return errors
 
 
 def _quad_errors(s, chain):
@@ -416,7 +449,10 @@ def _step_price(t, kind, model, params, inp):
         views = params.get("prompts")
         return len(views) * t["edit_multiview_per_view"] if isinstance(views, list) and views \
             else None
-    if kind in ("uv", "segment", "rig_check", "rig", "image_to_multiview"):
+    if kind == "segment":
+        seg = t["segment"]
+        return seg.get(_wire("segment", model or seg["default"]))
+    if kind in ("uv", "rig_check", "rig", "image_to_multiview"):
         return t[kind]
     return None
 

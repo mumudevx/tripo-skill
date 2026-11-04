@@ -45,7 +45,7 @@ After a rig-check on the file, use `"input": {"task": "@<asset>-rig_check-vNN"}`
 tripo make export/worker.glb --then "rig:model=v3.0;spec=mixamo;rig_type=biped" --name worker-rig-v01
 ```
 
-- `model`: `v3.0` (wire `v3.0-20260909`), the 0.9.0 default and the docs' recommendation for humanoids (B6). `v2.5` is for creatures; `v1.0` is biped-only but carries the large preset library (section 6).
+- `model`: `v3.0` (wire `v3.0-20260909`), the docs' recommendation for humanoids (B6). Since 0.10.0 an omitted rig model resolves after rig-check (quadruped `v2.5-20260210`, every other body `v3.0`); `tripo_plan.py` still requires an explicit model. `v2.5` is for creatures; `v1.0` is biped-only but carries the large preset library (section 6).
 - `rig_type`: copy rig-check's answer; never force another one.
 - `spec` (bone naming, applies to `biped` only): `tripo`, `mixamo`, `actorcore`, `unity`, `unreal`, `vrm`. Tripo's docs do not mention Godot. **Godot default: `mixamo`, to verify on the first paid run** (does Godot's BoneMap auto-map it?). Record the result as a lesson and in `profile.json` `pinned.rig_model`.
 - Output format: GLB (the default `out_format`), which Godot imports directly.
@@ -56,6 +56,21 @@ tripo make export/worker.glb --then "rig:model=v3.0;spec=mixamo;rig_type=biped" 
 - With the `tripo` naming the prior rig had 27 joints and no animations: `tripo::Root`, `tripo::Spine_0`, `tripo::Head_0..2`, `tripo::1_Right_Limb_0..2` (arms), `tripo::0_*_Limb_0..3` (legs) and unnamed `bone_4`, `bone_8`, `bone_20..26`. This is neither Mixamo nor Godot humanoid naming.
 - Godot renames `::` to `__` on import: game code refers to `tripo__1_Right_Limb_0`, not `tripo::1_Right_Limb_0`. Bone attachments and scripts must use the Godot spelling.
 - Mixamo naming has no root bone; Godot root motion needs one. Check `single_root` in the Godot rig check.
+
+BoneMap for a `spec=tripo` biped onto `SkeletonProfileHumanoid` (Godot spelling; verified headless on grime-does-pay `crew_worker`, rig v2.5-20260210, 2026-11-03: a T-pose source clip raised the left arm and swung the right leg forward on the worker exactly as on the source):
+
+| profile | Tripo bone | note |
+|---|---|---|
+| Hips | `tripo__Root` | its rest sits on the ground and carries no weights; there is no pelvis bone |
+| Spine | `tripo__Head_0` | the torso, despite the name |
+| Neck / Head | `tripo__Head_1` / `tripo__Head_2` | |
+| LeftShoulder / RightShoulder | `bone_8` / `bone_4` | clavicles; the arms hang off them |
+| Left/Right UpperArm, LowerArm, Hand | `tripo__1_<Side>_Limb_0`, `_1`, `_2` | |
+| Left/Right UpperLeg, LowerLeg, Foot, Toes | `tripo__0_<Side>_Limb_0`, `_1`, `_2`, `_3` | |
+| (unmapped) | `tripo__Spine_0`, `bone_20` to `bone_26` | childless pelvis and torso helpers parented to the root; they follow the hips |
+
+- Chest and UpperChest stay empty (optional in the profile); every required profile bone is mapped.
+- The hips rest on the ground, so Normalize Position Tracks scales hip position tracks by about 0: rotations retarget correctly, but hip bob and root motion from a clip are expected to be nearly flat (untested).
 
 ## 6. Animation question (K9, B16)
 
@@ -88,12 +103,12 @@ tripo make @worker-rig-v01-rig --then retarget:animation=preset:walk --name work
 Godot 4 retargets humanoid clips through a `BoneMap` onto `SkeletonProfileHumanoid` in the scene importer (Advanced Import Settings, select the Skeleton3D, Retarget).
 
 - Auto-mapping matches common English bone names; missing, duplicate or badly parented bones show red or magenta. They do not block the import, but the animations will not share correctly.
-- Reference pose: T-pose, facing +Z, Y up, no transform on the root node.
+- Reference pose: T-pose, facing +Z, Y up, no transform on the root node. **Check the facing first:** the `crew_worker` rig faced +X, and Fix Silhouette then opened its arms forward and backward instead of sideways. Rotate the model to face +Z in Blender (rotate and apply on the armature and its meshes, 0 credits) before retargeting.
 - Rest Fixer options: **Fix Silhouette** for A-pose models (filter the feet out if needed); **Overwrite Axis** is the key option for sharing animations (it can damage models whose own bone rest matters); **Normalize Position Tracks** stores `motion_scale` from the hips height (less foot sliding); **Apply Node Transform** fixes exports that skipped Apply Transform.
 - Remove Tracks, **Unimportant Positions**: keeps position tracks only on root and hips; on for shared animation libraries.
 - **Unique Node** on the skeleton keeps track paths working when the hierarchy changes.
 - Name looping clips with a `-loop` suffix (start or end of the clip name).
-- Godot's BoneMapper auto-mapping is editor-only: the headless check below cannot run it.
+- Godot's BoneMapper auto-mapping is editor-only: the headless check below cannot run it. A hand-written `BoneMap` resource does apply headless: set it in the GLB's `.import` `_subresources` under `"nodes": {"PATH:<path to Skeleton3D>": {"retarget/bone_map": Resource("res://<map>.tres"), "retarget/rest_fixer/fix_silhouette/enable": true}}` and run `godot --headless --import` (delete the cached import first: Godot does not reimport when only the map changed). The skeleton is renamed to `GeneralSkeleton` and its bones to profile names.
 
 ## 7. Godot rig acceptance (headless, 0 credits)
 
@@ -118,4 +133,4 @@ python3 scripts/godot_place.py rig_accept <project> export/worker_rigged.glb
 
 ## 9. Open until the first paid rig runs (record each as a lesson)
 
-A-pose vs T-pose on rig-check and rig; `spec=mixamo` (or another spec) against Godot's BoneMap; bone count, influences and scale of the v3.0 output; clip names and packaging of retarget output; the import price of a file input.
+A-pose vs T-pose on rig-check and rig; `spec=mixamo` (or another spec) against Godot's BoneMap (`spec=tripo` has the verified hand map in section 5, so mixamo is only worth its 25 credits for Mixamo clips); bone count, influences and scale of the v3.0 output; clip names and packaging of retarget output; the import price of a file input.

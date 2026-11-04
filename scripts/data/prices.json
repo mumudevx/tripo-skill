@@ -1,5 +1,5 @@
 {
-  "as_of": "2026-10-31",
+  "as_of": "2026-11-03",
   "unit": "credits (1 credit = 0.01 USD)",
   "sources": [
     "https://developers.tripo3d.ai/en/pricing (via _research/tripo-generation.md section 2)",
@@ -12,7 +12,15 @@
     "generate.texture_tiers": "'none' = texture=false; 'standard' = any texture (fast bills as standard). H add-ons stack on top of the base.",
     "generate.p_series": "P-series detailed/extreme texture and P2 quad are not on the pricing page, so they are unknown (null).",
     "convert": "advanced = any non-default quad, face_limit, flatten_bottom, flatten_bottom_threshold, texture_size, texture_format, pivot_to_center_bottom or scale_factor.",
-    "import": "tripo make <file> always runs an import task first; its price is not published."
+    "import": "tripo make <file> always runs an import task first; its price is not published.",
+    "retired": "Tripo email 2026-11-02 (Upcoming Deprecation of Legacy Tripo API Models): these wire ids stop working on the date; tripo_plan.py rejects them now.",
+    "segment": "per model; v2.0 (the default from 2026-12-01, and what tripo_plan.py sends) is not on the pricing page yet, so it is unknown (null)."
+  },
+  "retired": {
+    "date": "2026-12-01",
+    "generate": ["v2.5-20250123"],
+    "texture": ["v2.5-20250123"],
+    "segment": ["v1.0-20250506"]
   },
   "generate": {
     "aliases": {
@@ -56,7 +64,7 @@
     "v3.0": {"tri": 35, "quad": 40}
   },
   "uv": 20,
-  "segment": 40,
+  "segment": {"default": "v2.0-20260430", "v1.0-20250506": 40, "v2.0-20260430": null},
   "complete": {"ai_completion": 50, "quick_cap": 30},
   "smartsegment": {"model": 55, "image": 85},
   "rig_check": 0,

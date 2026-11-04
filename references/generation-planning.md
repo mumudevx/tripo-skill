@@ -45,7 +45,7 @@ Count triangles, never "polys": with `quad=true`, `face_limit` counts quads and 
 
 ## 3. Face budget decision (B8, B9)
 
-`face_limit` is a hint, not a cap. Measured on real outputs (`_research/prior-testset.md` section 3):
+`face_limit` is a hint, not a cap. Measured on real outputs (`_research/prior-testset.md` section 3). **Re-verify the two `smart_low_poly` rows after 2026-12-01:** Tripo then runs `smart_low_poly` on retopology v3.0 (email 2026-11-02), so the overshoot may change; measure the first run and record a lesson:
 
 | request | result |
 |---|---|
@@ -82,7 +82,7 @@ Ask once, only for objects with movable or detachable parts (doors, lids, wheels
 |---|---|---|
 | one piece | normal generation; Blender `separate_parts` later if needed | 30 to 40 |
 | parts at generation | `generate_parts=true` with `texture=false`, `pbr=false` (untextured), then a `texture` step | 20 + 20 = 40, then 10 to 30 for texture |
-| one piece, split by Tripo | normal generation, then `segment` (40), or `smartsegment` on a file (55) | 30 to 40 + 40 or 55 |
+| one piece, split by Tripo | normal generation, then `segment` (v2.0, price unknown; v1.0 was 40 and retires 2026-12-01), or `smartsegment` on a file (55) | 30 to 40 + unknown or 55 |
 
 - Parts come only from Tripo (`generate_parts`, `segment`, `smartsegment`). Never one image and one generation per part: in PATINA such parts did not fit together and did not look like one family (K16, the seed lesson in `lessons/general.md`).
 - `generate_parts` cannot be combined with `smart_low_poly` (rejected); with `quad=true` the parts come out as triangles.

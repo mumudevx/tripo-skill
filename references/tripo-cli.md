@@ -1,8 +1,8 @@
-# tripo-cli 0.9.0: commands, parameters, prices
+# tripo-cli 0.11.0: commands, parameters, prices
 
 When to read this: phase 4 (generation plan) and before any paid step in phases 6 and 7; also when a tripo command exits non-zero.
 
-Every fact here was checked against tripo-cli 0.9.0 (`tests/golden_dryruns.json`, recorded with `--dry-run --json`, and the 0.9.0 `CHANGELOG.md`) or comes from `_research/tripo-*.md`. A fenced command marked `<!-- unverified -->` has no golden dry-run of the same shape: `tripo_plan.py` still dry-runs it before use, but the golden set does not pin its behaviour across CLI updates.
+Every fact here was checked against tripo-cli 0.9.0 and re-checked on 0.11.0 (`tests/golden_dryruns.json`, recorded with `--dry-run --json`, and the package `CHANGELOG.md`) or comes from `_research/tripo-*.md`. A fenced command marked `<!-- unverified -->` has no golden dry-run of the same shape: `tripo_plan.py` still dry-runs it before use, but the golden set does not pin its behaviour across CLI updates.
 
 ## 1. How the skill calls Tripo
 
@@ -31,7 +31,7 @@ Record every paid step in the ledger before and after it runs: `asset_state.py l
 
 ## 2. Hard rules (each one cost credits before)
 
-1. **Always `--model`, never `-p model=`** (B10). Without `--model`, 0.9.0 picks the model itself: `-p face_limit=8000` alone selects P2 (estimate 110, golden `auto_model_face_limit_8000_*`). In 0.6.1 `-p model=` overrode `--model` and skipped the model checks; 0.9.0 keeps `--model` (golden `model_param_cannot_override_flag`), but the rule stays.
+1. **Always `--model`, never `-p model=`** (B10). Since 0.10.0 an omitted model is always P2 (`P2-20260801`): a plain textured text prompt costs 110 instead of 20, and P2 drops `smart_low_poly` with a warning (golden `default_model_is_p2_drops_smart_low_poly`). `tripo_plan.py` refuses a generation step without a model. In 0.6.1 `-p model=` overrode `--model` and skipped the model checks; 0.9.0 keeps `--model` (golden `model_param_cannot_override_flag`), but the rule stays.
 2. **One paid step per command** (B17). `tripo_plan.py` builds single steps; the lock refuses a command that holds two paid steps. The free `rig-check` runs on its own command too.
 3. **Only `tripo make` has `--dry-run`.** `generate`, `model`, `mesh`, `anim`, `redo`, `batch`, `ai` and the MCP tools have none. `tripo_plan.py` routes every kind it can through `tripo make <src> --then <step>`; only `image_to_multiview`, `edit_multiview` and `smartsegment` become direct commands (no dry-run, priced from the table).
 4. **`-p` reaches only the generation step**, never a `--then` step. `--then` takes scalars only: no lists, no objects (a list makes `tripo_plan.py` refuse the step).
@@ -68,18 +68,18 @@ Native quads on P2 (golden `p2_quad_8000`, estimate 110; output is FBX):
 tripo make refs/front.png --model tripo-p2 -p quad=true -p face_limit=8000 --name crate-generate-v01
 ```
 
-Parameter facts (0.9.0):
+Parameter facts (0.9.0, re-checked on 0.11.0):
 
 | parameter | effect | checked by |
 |---|---|---|
 | `--model tripo-v3.1` | H3.1, wire `v3.1-20260211`, the official default | golden |
 | `--model tripo-p1` | P1 `P1-20260311`: clean low-poly triangles, `face_limit` 50 to 20000; no `quad`, `smart_low_poly`, `generate_parts`, `geometry_quality` (removed with a warning) | golden `p1_*` |
 | `--model tripo-p2` | P2 `P2-20260801`: `face_limit` 48 to 50000 tris, 48 to 25000 with `quad=true`; no `smart_low_poly` (removed) | golden `p2_*` |
-| `--model tripo-v2.5` | legacy: `geometry_quality`, `quad`, `smart_low_poly`, `generate_parts`, `auto_size`, `compress` removed | golden, changelog |
+| `--model tripo-v2.5` | **retired by Tripo on 2026-12-01** (email 2026-11-02), with texture model v2.5; `tripo_plan.py` rejects both now | `prices.json` `retired` |
 | `face_limit` | target face count; a hint, not a cap (B8) | measured |
-| `smart_low_poly=true` | H only, +10; needs `face_limit` 500 to 20000 (error below) | golden |
-| `generate_parts=true` | H only, +20; 0.9.0 turns texture and pbr off with a warning, still pass `texture=false pbr=false`; rejected together with `smart_low_poly` | golden |
-| `quad=true` | +5 on H; output is forced to FBX (quads cannot live in GLB) | golden |
+| `smart_low_poly=true` | H only, +10; needs `face_limit` 500 to 20000 (error below). From 2026-12-01 Tripo runs it on retopology v3.0: the measured overshoot in `generation-planning.md` section 3 must be re-measured | golden |
+| `generate_parts=true` | H only, +20; the CLI turns texture and pbr off with a warning, still pass `texture=false pbr=false`; rejected together with `smart_low_poly`. From 2026-12-01 Tripo splits the parts with segmentation v2.0 (part quality and price to re-verify) | golden |
+| `quad=true` | +5 on H; output is forced to FBX (quads cannot live in GLB); 0.10.0+ also warns about it on P2 | golden |
 | `texture_version=v3.5` | newest texture model (`v3.5-20260815`); enables `delight` and `texture_quality=fast` | golden |
 | `delight=true` | removes lighting baked into the reference from the albedo (v3.5 only); `false` keeps painted shading | changelog, golden |
 | `texture_quality` | `fast` (selects v3.5 by itself) / `standard` / `detailed` (+10) / `extreme` (8K, +20) | golden |
@@ -112,7 +112,12 @@ Other single steps (prices from section 6):
 <!-- unverified -->
 ```bash
 tripo make @crate-decimate-v01-decimate --then uv --name crate-uv-v01
-tripo make @crate-generate-v01 --then segment --name crate-segment-v01
+```
+
+Segment, pinned to v2.0 (golden `segment_v2_pinned`; `tripo_plan.py` adds the model when the step has none):
+
+```bash
+tripo make @crate-generate-v01 --then "segment:model=v2.0-20260430" --name crate-segment-v01
 ```
 
 Convert with a texture size (golden `convert_complex_tier_warning`: any non-default option bills the advanced tier, 10):
@@ -124,7 +129,7 @@ tripo make @crate-generate-v01 --then "convert:format=FBX;texture_size=2048" --n
 - `convert:glb` is an error: GLB is the native output, not a convert target (golden).
 - A quad mesh cannot be converted to GLTF. The CLI only warns; `tripo_plan.py --chain` refuses it.
 - `uv` (Smart UV, 20) re-unwraps and remaps existing textures, rig and animation; input at most 80000 triangles (decimate first).
-- `segment` (40) splits parts; `complete` (50, or 30 with `completion_mode=quick_cap`) accepts only a segment task.
+- `segment` splits parts. Tripo retires segment v1.0 (40 credits) on 2026-12-01 and makes v2.0 the default; v2.0's price is not published yet, so the window says "tahmin yok" until the first run records it. `complete` (50, or 30 with `completion_mode=quick_cap`) accepts only a segment task; that it accepts a v2.0 segment task is unverified.
 - `smartsegment` (55 model, 85 image) takes a file only and runs as a direct `tripo mesh smartsegment` command (no dry-run).
 - Rig steps are in `rigging.md`.
 
@@ -146,7 +151,7 @@ The dry-run's `generation_credits_estimate` wins for generation steps (H3.1 and 
 | texture step fast / standard / detailed / extreme | 10 / 10 / 20 / 30 |
 | decimate v1.0 / v2.0 / v3.0 tri / v3.0 quad | 10 / 30 / 35 / 40 |
 | uv | 20 |
-| segment | 40 |
+| segment v1.0 (retired 2026-12-01) / v2.0 (default) | 40 / unknown |
 | complete ai_completion / quick_cap | 50 / 30 |
 | smartsegment model / image | 55 / 85 |
 | convert basic / advanced | 5 / 10 |
@@ -158,7 +163,7 @@ The dry-run's `generation_credits_estimate` wins for generation steps (H3.1 and 
 | import (any local file input) | unknown |
 | P-series detailed/extreme texture, P2 quad surcharge | unknown |
 
-Golden estimates (0.9.0): v3.1 image + v3.5 + detailed = 40; v3.1 text = 20; v3.1 text + smart_low_poly = 30; v3.1 text + parts = 30; v3.1 multiview = 30; P2 = 110. Failed and cancelled tasks are refunded.
+Golden estimates (0.9.0, unchanged on 0.11.0 with an explicit model): v3.1 image + v3.5 + detailed = 40; v3.1 text = 20; v3.1 text + smart_low_poly = 30; v3.1 text + parts = 30; v3.1 multiview = 30; P2 = 110. Failed and cancelled tasks are refunded.
 
 ## 7. Credit lock (`scripts/hooks/tripo_guard.py`)
 
